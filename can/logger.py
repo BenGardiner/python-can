@@ -1,166 +1,29 @@
 import argparse
 import errno
-import re
 import sys
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
-    Any,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
 )
 
-import can
-from can import Bus, BusState, Logger, SizedRotatingLogger
+from can import BusState, Logger, SizedRotatingLogger
+from can.cli import (
+    _add_extra_args,
+    _parse_additional_config,
+    _set_logging_level_from_namespace,
+    add_bus_arguments,
+    create_bus_from_namespace,
+)
 from can.typechecking import TAdditionalCliArgs
-from can.util import cast_from_string
 
 if TYPE_CHECKING:
     from can.io import BaseRotatingLogger
     from can.io.generic import MessageWriter
-    from can.typechecking import CanFilter
-
-
-def _create_base_argument_parser(parser: argparse.ArgumentParser) -> None:
-    """Adds common options to an argument parser."""
-
-    parser.add_argument(
-        "-c",
-        "--channel",
-        help=r"Most backend interfaces require some sort of channel. For "
-        r"example with the serial interface the channel might be a rfcomm"
-        r' device: "/dev/rfcomm0". With the socketcan interface valid '
-        r'channel examples include: "can0", "vcan0".',
-    )
-
-    parser.add_argument(
-        "-i",
-        "--interface",
-        dest="interface",
-        help="""Specify the backend CAN interface to use. If left blank,
-                        fall back to reading from configuration files.""",
-        choices=sorted(can.VALID_INTERFACES),
-    )
-
-    parser.add_argument(
-        "-b", "--bitrate", type=int, help="Bitrate to use for the CAN bus."
-    )
-
-    parser.add_argument("--fd", help="Activate CAN-FD support", action="store_true")
-
-    parser.add_argument(
-        "--data_bitrate",
-        type=int,
-        help="Bitrate to use for the data phase in case of CAN-FD.",
-    )
-
-    parser.add_argument(
-        "extra_args",
-        nargs=argparse.REMAINDER,
-        help="The remaining arguments will be used for the interface and "
-        "logger/player initialisation. "
-        "For example, `-i vector -c 1 --app-name=MyCanApp` is the equivalent "
-        "to opening the bus with `Bus('vector', channel=1, app_name='MyCanApp')",
-    )
-
-
-def _append_filter_argument(
-    parser: Union[argparse.ArgumentParser, argparse._ArgumentGroup],
-    *args: str,
-    **kwargs: Any,
-) -> None:
-    """Adds the ``filter`` option to an argument parser."""
-
-    parser.add_argument(
-        *args,
-        "--filter",
-        help="R|Space separated CAN filters for the given CAN interface:"
-        "\n      <can_id>:<can_mask> (matches when <received_can_id> & mask =="
-        " can_id & mask)"
-        "\n      <can_id>~<can_mask> (matches when <received_can_id> & mask !="
-        " can_id & mask)"
-        "\nFx to show only frames with ID 0x100 to 0x103 and 0x200 to 0x20F:"
-        "\n      python -m can.viewer --filter 100:7FC 200:7F0"
-        "\nNote that the ID and mask are always interpreted as hex values",
-        metavar="{<can_id>:<can_mask>,<can_id>~<can_mask>}",
-        nargs=argparse.ONE_OR_MORE,
-        action=_CanFilterAction,
-        dest="can_filters",
-        **kwargs,
-    )
-
-
-def _create_bus(parsed_args: argparse.Namespace, **kwargs: Any) -> can.BusABC:
-    logging_level_names = ["critical", "error", "warning", "info", "debug", "subdebug"]
-    can.set_logging_level(logging_level_names[min(5, parsed_args.verbosity)])
-
-    config: Dict[str, Any] = {"single_handle": True, **kwargs}
-    if parsed_args.interface:
-        config["interface"] = parsed_args.interface
-    if parsed_args.bitrate:
-        config["bitrate"] = parsed_args.bitrate
-    if parsed_args.fd:
-        config["fd"] = True
-    if parsed_args.data_bitrate:
-        config["data_bitrate"] = parsed_args.data_bitrate
-    if getattr(parsed_args, "can_filters", None):
-        config["can_filters"] = parsed_args.can_filters
-
-    return Bus(parsed_args.channel, **config)
-
-
-class _CanFilterAction(argparse.Action):
-    def __call__(
-        self,
-        parser: argparse.ArgumentParser,
-        namespace: argparse.Namespace,
-        values: Union[str, Sequence[Any], None],
-        option_string: Optional[str] = None,
-    ) -> None:
-        if not isinstance(values, list):
-            raise argparse.ArgumentError(None, "Invalid filter argument")
-
-        print(f"Adding filter(s): {values}")
-        can_filters: List[CanFilter] = []
-
-        for filt in values:
-            if ":" in filt:
-                parts = filt.split(":")
-                can_id = int(parts[0], base=16)
-                can_mask = int(parts[1], base=16)
-            elif "~" in filt:
-                parts = filt.split("~")
-                can_id = int(parts[0], base=16) | 0x20000000  # CAN_INV_FILTER
-                can_mask = int(parts[1], base=16) & 0x20000000  # socket.CAN_ERR_FLAG
-            else:
-                raise argparse.ArgumentError(None, "Invalid filter argument")
-            can_filters.append({"can_id": can_id, "can_mask": can_mask})
-
-        setattr(namespace, self.dest, can_filters)
-
-
-def _parse_additional_config(unknown_args: Sequence[str]) -> TAdditionalCliArgs:
-    for arg in unknown_args:
-        if not re.match(r"^--[a-zA-Z\-]*?=\S*?$", arg):
-            raise ValueError(f"Parsing argument {arg} failed")
-
-    def _split_arg(_arg: str) -> Tuple[str, str]:
-        left, right = _arg.split("=", 1)
-        return left.lstrip("-").replace("-", "_"), right
-
-    args: Dict[str, Union[str, int, float, bool]] = {}
-    for key, string_val in map(_split_arg, unknown_args):
-        args[key] = cast_from_string(string_val)
-    return args
 
 
 def _parse_logger_args(
-    args: List[str],
-) -> Tuple[argparse.Namespace, TAdditionalCliArgs]:
+    args: list[str],
+) -> tuple[argparse.Namespace, TAdditionalCliArgs]:
     """Parse command line arguments for logger script."""
 
     parser = argparse.ArgumentParser(
@@ -168,11 +31,9 @@ def _parse_logger_args(
         "given file.",
     )
 
-    # Generate the standard arguments:
-    # Channel, bitrate, data_bitrate, interface, app_name, CAN-FD support
-    _create_base_argument_parser(parser)
+    logger_group = parser.add_argument_group("logger arguments")
 
-    parser.add_argument(
+    logger_group.add_argument(
         "-f",
         "--file_name",
         dest="log_file",
@@ -180,7 +41,7 @@ def _parse_logger_args(
         default=None,
     )
 
-    parser.add_argument(
+    logger_group.add_argument(
         "-a",
         "--append",
         dest="append",
@@ -188,7 +49,7 @@ def _parse_logger_args(
         action="store_true",
     )
 
-    parser.add_argument(
+    logger_group.add_argument(
         "-s",
         "--file_size",
         dest="file_size",
@@ -200,7 +61,7 @@ def _parse_logger_args(
         default=None,
     )
 
-    parser.add_argument(
+    logger_group.add_argument(
         "-v",
         action="count",
         dest="verbosity",
@@ -209,9 +70,7 @@ def _parse_logger_args(
         default=2,
     )
 
-    _append_filter_argument(parser)
-
-    state_group = parser.add_mutually_exclusive_group(required=False)
+    state_group = logger_group.add_mutually_exclusive_group(required=False)
     state_group.add_argument(
         "--active",
         help="Start the bus as active, this is applied by default.",
@@ -220,6 +79,12 @@ def _parse_logger_args(
     state_group.add_argument(
         "--passive", help="Start the bus as passive.", action="store_true"
     )
+
+    # handle remaining arguments
+    _add_extra_args(logger_group)
+
+    # add bus options
+    add_bus_arguments(parser, filter_arg=True)
 
     # print help message when no arguments were given
     if not args:
@@ -233,7 +98,8 @@ def _parse_logger_args(
 
 def main() -> None:
     results, additional_config = _parse_logger_args(sys.argv[1:])
-    bus = _create_bus(results, **additional_config)
+    bus = create_bus_from_namespace(results)
+    _set_logging_level_from_namespace(results)
 
     if results.active:
         bus.state = BusState.ACTIVE
@@ -243,7 +109,7 @@ def main() -> None:
     print(f"Connected to {bus.__class__.__name__}: {bus.channel_info}")
     print(f"Can Logger (Started on {datetime.now()})")
 
-    logger: Union[MessageWriter, BaseRotatingLogger]
+    logger: MessageWriter | BaseRotatingLogger
     if results.file_size:
         logger = SizedRotatingLogger(
             base_filename=results.log_file,

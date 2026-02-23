@@ -15,7 +15,7 @@ import logging
 import sys
 import time
 import warnings
-from typing import Callable, Optional, Sequence, Tuple, Union
+from collections.abc import Callable, Sequence
 
 from can import (
     BusABC,
@@ -34,11 +34,11 @@ from . import constants, structures
 from .exceptions import *
 
 __all__ = [
-    "VCITimeout",
-    "VCIError",
+    "IXXATBus",
     "VCIBusOffError",
     "VCIDeviceNotFoundError",
-    "IXXATBus",
+    "VCIError",
+    "VCITimeout",
     "vciFormatError",
 ]
 
@@ -62,7 +62,7 @@ else:
 
 
 def __vciFormatErrorExtended(
-    library_instance: CLibrary, function: Callable, vret: int, args: Tuple
+    library_instance: CLibrary, function: Callable, vret: int, args: tuple
 ):
     """Format a VCI error and attach failed function, decoded HRESULT and arguments
     :param CLibrary library_instance:
@@ -430,19 +430,19 @@ class IXXATBus(BusABC):
         channel: int,
         can_filters=None,
         receive_own_messages: int = False,
-        unique_hardware_id: Optional[int] = None,
+        unique_hardware_id: int | None = None,
         extended: bool = True,
         rx_fifo_size: int = 1024,
         tx_fifo_size: int = 128,
         bitrate: int = 500000,
         data_bitrate: int = 2000000,
-        sjw_abr: Optional[int] = None,
-        tseg1_abr: Optional[int] = None,
-        tseg2_abr: Optional[int] = None,
-        sjw_dbr: Optional[int] = None,
-        tseg1_dbr: Optional[int] = None,
-        tseg2_dbr: Optional[int] = None,
-        ssp_dbr: Optional[int] = None,
+        sjw_abr: int | None = None,
+        tseg1_abr: int | None = None,
+        tseg2_abr: int | None = None,
+        sjw_dbr: int | None = None,
+        tseg1_dbr: int | None = None,
+        tseg2_dbr: int | None = None,
+        ssp_dbr: int | None = None,
         **kwargs,
     ):
         """
@@ -726,7 +726,15 @@ class IXXATBus(BusABC):
                 log.info("Accepting ID: 0x%X MASK: 0x%X", code, mask)
 
         # Start the CAN controller. Messages will be forwarded to the channel
+        start_begin = time.time()
         _canlib.canControlStart(self._control_handle, constants.TRUE)
+        start_end = time.time()
+
+        # Calculate an offset to make them relative to epoch
+        # Assume that the time offset is in the middle of the start command
+        self._timeoffset = start_begin + (start_end - start_begin / 2)
+        self._overrunticks = 0
+        self._starttickoffset = 0
 
         # For cyclic transmit list. Set when .send_periodic() is first called
         self._scheduler = None
@@ -831,7 +839,9 @@ class IXXATBus(BusABC):
                                 f"Unknown CAN info message code {self._message.abData[0]}",
                             )
                         )
-
+                    # Handle CAN start info message
+                    elif self._message.abData[0] == constants.CAN_INFO_START:
+                        self._starttickoffset = self._message.dwTime
                     elif (
                         self._message.uMsgInfo.Bits.type == constants.CAN_MSGTYPE_ERROR
                     ):
@@ -847,13 +857,14 @@ class IXXATBus(BusABC):
                     ):
                         log.info(_format_can_status(self._message.abData[0]))
                         if self._message.abData[0] & constants.CAN_STATUS_BUSOFF:
-                            raise VCIBusOffError()
+                            raise VCIBusOffError("Controller is in BUSOFF state")
 
                     elif (
                         self._message.uMsgInfo.Bits.type
                         == constants.CAN_MSGTYPE_TIMEOVR
                     ):
-                        pass
+                        # Add the number of timestamp overruns to the high word
+                        self._overrunticks += self._message.dwMsgId << 32
                     else:
                         log.warning("Unexpected message info type")
 
@@ -867,11 +878,12 @@ class IXXATBus(BusABC):
             return None, True
 
         data_len = dlc2len(self._message.uMsgInfo.Bits.dlc)
-        # The _message.dwTime is a 32bit tick value and will overrun,
-        # so expect to see the value restarting from 0
         rx_msg = Message(
-            timestamp=self._message.dwTime
-            / self._tick_resolution,  # Relative time in s
+            timestamp=(
+                (self._message.dwTime + self._overrunticks - self._starttickoffset)
+                / self._tick_resolution
+            )
+            + self._timeoffset,
             is_remote_frame=bool(self._message.uMsgInfo.Bits.rtr),
             is_fd=bool(self._message.uMsgInfo.Bits.edl),
             is_rx=True,
@@ -889,7 +901,7 @@ class IXXATBus(BusABC):
 
         return rx_msg, True
 
-    def send(self, msg: Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         """
         Sends a message on the bus. The interface may buffer the message.
 
@@ -934,10 +946,11 @@ class IXXATBus(BusABC):
 
     def _send_periodic_internal(
         self,
-        msgs: Union[Sequence[Message], Message],
+        msgs: Sequence[Message] | Message,
         period: float,
-        duration: Optional[float] = None,
-        modifier_callback: Optional[Callable[[Message], None]] = None,
+        duration: float | None = None,
+        autostart: bool = True,
+        modifier_callback: Callable[[Message], None] | None = None,
     ) -> CyclicSendTaskABC:
         """Send a message using built-in cyclic transmit list functionality."""
         if modifier_callback is None:
@@ -953,7 +966,12 @@ class IXXATBus(BusABC):
                 )  # TODO: confirm
                 _canlib.canSchedulerActivate(self._scheduler, constants.TRUE)
             return CyclicSendTask(
-                self._scheduler, msgs, period, duration, self._scheduler_resolution
+                self._scheduler,
+                msgs,
+                period,
+                duration,
+                self._scheduler_resolution,
+                autostart=autostart,
             )
 
         # fallback to thread based cyclic task
@@ -967,6 +985,7 @@ class IXXATBus(BusABC):
             msgs=msgs,
             period=period,
             duration=duration,
+            autostart=autostart,
             modifier_callback=modifier_callback,
         )
 
@@ -983,7 +1002,15 @@ class IXXATBus(BusABC):
 class CyclicSendTask(LimitedDurationCyclicSendTaskABC, RestartableCyclicTaskABC):
     """A message in the cyclic transmit list."""
 
-    def __init__(self, scheduler, msgs, period, duration, resolution):
+    def __init__(
+        self,
+        scheduler,
+        msgs,
+        period,
+        duration,
+        resolution,
+        autostart: bool = True,
+    ):
         super().__init__(msgs, period, duration)
         if len(self.messages) != 1:
             raise ValueError(
@@ -995,7 +1022,7 @@ class CyclicSendTask(LimitedDurationCyclicSendTaskABC, RestartableCyclicTaskABC)
         self._count = int(duration / period) if duration else 0
 
         self._msg = structures.CANCYCLICTXMSG2()
-        self._msg.wCycleTime = int(round(period * resolution))
+        self._msg.wCycleTime = round(period * resolution)
         self._msg.dwMsgId = self.messages[0].arbitration_id
         self._msg.uMsgInfo.Bits.type = constants.CAN_MSGTYPE_DATA
         self._msg.uMsgInfo.Bits.ext = 1 if self.messages[0].is_extended_id else 0
@@ -1003,7 +1030,8 @@ class CyclicSendTask(LimitedDurationCyclicSendTaskABC, RestartableCyclicTaskABC)
         self._msg.uMsgInfo.Bits.dlc = self.messages[0].dlc
         for i, b in enumerate(self.messages[0].data):
             self._msg.abData[i] = b
-        self.start()
+        if autostart:
+            self.start()
 
     def start(self):
         """Start transmitting message (add to list if needed)."""

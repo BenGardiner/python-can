@@ -4,7 +4,8 @@ Interface for CANtact devices from Linklayer Labs
 
 import logging
 import time
-from typing import Any, Optional, Union
+from collections.abc import Sequence
+from typing import Any
 from unittest.mock import Mock
 
 from can import BitTiming, BitTimingFd, BusABC, CanProtocol, Message
@@ -14,6 +15,7 @@ from ..exceptions import (
     CanInterfaceNotImplementedError,
     error_check,
 )
+from ..typechecking import AutoDetectedConfig
 from ..util import check_or_adjust_timing_clock, deprecated_args_alias
 
 logger = logging.getLogger(__name__)
@@ -31,7 +33,7 @@ class CantactBus(BusABC):
     """CANtact interface"""
 
     @staticmethod
-    def _detect_available_configs():
+    def _detect_available_configs() -> Sequence[AutoDetectedConfig]:
         try:
             interface = cantact.Interface()
         except (NameError, SystemError, AttributeError):
@@ -40,7 +42,7 @@ class CantactBus(BusABC):
             )
             return []
 
-        channels = []
+        channels: list[AutoDetectedConfig] = []
         for i in range(0, interface.channel_count()):
             channels.append({"interface": "cantact", "channel": f"ch:{i}"})
         return channels
@@ -54,7 +56,7 @@ class CantactBus(BusABC):
         bitrate: int = 500_000,
         poll_interval: float = 0.01,
         monitor: bool = False,
-        timing: Optional[Union[BitTiming, BitTimingFd]] = None,
+        timing: BitTiming | BitTimingFd | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -121,7 +123,12 @@ class CantactBus(BusABC):
             **kwargs,
         )
 
-    def _recv_internal(self, timeout):
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
+        if timeout is None:
+            raise TypeError(
+                f"{self.__class__.__name__} expects a numeric `timeout` value."
+            )
+
         with error_check("Cannot receive message"):
             frame = self.interface.recv(int(timeout * 1000))
         if frame is None:
@@ -140,7 +147,7 @@ class CantactBus(BusABC):
         )
         return msg, False
 
-    def send(self, msg, timeout=None):
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         with error_check("Cannot send message"):
             self.interface.send(
                 self.channel,
@@ -151,13 +158,13 @@ class CantactBus(BusABC):
                 msg.data,
             )
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         super().shutdown()
         with error_check("Cannot shutdown interface"):
             self.interface.stop()
 
 
-def mock_recv(timeout):
+def mock_recv(timeout: int) -> dict[str, Any] | None:
     if timeout > 0:
         return {
             "id": 0x123,

@@ -6,7 +6,7 @@ import logging
 import platform
 import time
 import warnings
-from typing import Any, List, Optional, Tuple, Union
+from typing import Any
 
 from packaging import version
 
@@ -43,6 +43,7 @@ from .basic import (
     PCAN_DICT_STATUS,
     PCAN_ERROR_BUSHEAVY,
     PCAN_ERROR_BUSLIGHT,
+    PCAN_ERROR_ILLDATA,
     PCAN_ERROR_OK,
     PCAN_ERROR_QRCVEMPTY,
     PCAN_FD_PARAMETER_LIST,
@@ -119,9 +120,9 @@ class PcanBus(BusABC):
     def __init__(
         self,
         channel: str = "PCAN_USBBUS1",
-        device_id: Optional[int] = None,
+        device_id: int | None = None,
         state: BusState = BusState.ACTIVE,
-        timing: Optional[Union[BitTiming, BitTimingFd]] = None,
+        timing: BitTiming | BitTimingFd | None = None,
         bitrate: int = 500000,
         receive_own_messages: bool = False,
         **kwargs: Any,
@@ -499,9 +500,7 @@ class PcanBus(BusABC):
             return False
         return True
 
-    def _recv_internal(
-        self, timeout: Optional[float]
-    ) -> Tuple[Optional[Message], bool]:
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
         end_time = time.time() + timeout if timeout is not None else None
 
         while True:
@@ -522,7 +521,7 @@ class PcanBus(BusABC):
                 # receive queue is empty, wait or return on timeout
 
                 if end_time is None:
-                    time_left: Optional[float] = None
+                    time_left: float | None = None
                     timed_out = False
                 else:
                     time_left = max(0.0, end_time - time.time())
@@ -555,6 +554,12 @@ class PcanBus(BusABC):
             elif result & (PCAN_ERROR_BUSLIGHT | PCAN_ERROR_BUSHEAVY):
                 log.warning(self._get_formatted_error(result))
 
+            elif result == PCAN_ERROR_ILLDATA:
+                # When there is an invalid frame on CAN bus (in our case CAN FD), PCAN first reports result PCAN_ERROR_ILLDATA
+                # and then it sends the error frame. If the PCAN_ERROR_ILLDATA is not ignored, python-can throws an exception.
+                # So we ignore any PCAN_ERROR_ILLDATA results here.
+                pass
+
             else:
                 raise PcanCanOperationError(self._get_formatted_error(result))
 
@@ -583,6 +588,7 @@ class PcanBus(BusABC):
             )
 
         rx_msg = Message(
+            channel=self.channel_info,
             timestamp=timestamp,
             arbitration_id=pcan_msg.ID,
             is_extended_id=is_extended_id,
@@ -719,7 +725,7 @@ class PcanBus(BusABC):
             res, value = library_handle.GetValue(PCAN_NONEBUS, PCAN_ATTACHED_CHANNELS)
             if res != PCAN_ERROR_OK:
                 return interfaces
-            channel_information: List[TPCANChannelInformation] = list(value)
+            channel_information: list[TPCANChannelInformation] = list(value)
             for channel in channel_information:
                 # find channel name in PCAN_CHANNEL_NAMES by value
                 channel_name = next(
@@ -785,7 +791,7 @@ class PcanBus(BusABC):
                 pass
         return channels
 
-    def status_string(self) -> Optional[str]:
+    def status_string(self) -> str | None:
         """
         Query the PCAN bus status.
 

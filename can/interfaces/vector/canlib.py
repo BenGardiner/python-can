@@ -10,18 +10,11 @@ import logging
 import os
 import time
 import warnings
+from collections.abc import Callable, Iterator, Sequence
 from types import ModuleType
 from typing import (
     Any,
-    Callable,
-    Dict,
-    Iterator,
-    List,
     NamedTuple,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
     cast,
 )
 
@@ -49,14 +42,14 @@ from .exceptions import VectorError, VectorInitializationError, VectorOperationE
 LOG = logging.getLogger(__name__)
 
 # Import safely Vector API module for Travis tests
-xldriver: Optional[ModuleType] = None
+xldriver: ModuleType | None = None
 try:
     from . import xldriver
 except FileNotFoundError as exc:
     LOG.warning("Could not import vxlapi: %s", exc)
 
-WaitForSingleObject: Optional[Callable[[int, int], int]]
-INFINITE: Optional[int]
+WaitForSingleObject: Callable[[int, int], int] | None
+INFINITE: int | None
 try:
     # Try builtin Python 3 Windows API
     from _winapi import (  # type: ignore[attr-defined,no-redef,unused-ignore]
@@ -87,24 +80,24 @@ class VectorBus(BusABC):
     )
     def __init__(
         self,
-        channel: Union[int, Sequence[int], str],
-        can_filters: Optional[CanFilters] = None,
+        channel: int | Sequence[int] | str,
+        can_filters: CanFilters | None = None,
         poll_interval: float = 0.01,
         receive_own_messages: bool = False,
-        timing: Optional[Union[BitTiming, BitTimingFd]] = None,
-        bitrate: Optional[int] = None,
+        timing: BitTiming | BitTimingFd | None = None,
+        bitrate: int | None = None,
         rx_queue_size: int = 2**14,
-        app_name: Optional[str] = "CANalyzer",
-        serial: Optional[int] = None,
+        app_name: str | None = "CANalyzer",
+        serial: int | None = None,
         fd: bool = False,
-        data_bitrate: Optional[int] = None,
+        data_bitrate: int | None = None,
         sjw_abr: int = 2,
         tseg1_abr: int = 6,
         tseg2_abr: int = 3,
         sjw_dbr: int = 2,
         tseg1_dbr: int = 6,
         tseg2_dbr: int = 3,
-        listen_only: Optional[bool] = False,
+        listen_only: bool | None = False,
         **kwargs: Any,
     ) -> None:
         """
@@ -204,8 +197,8 @@ class VectorBus(BusABC):
         is_fd = isinstance(timing, BitTimingFd) if timing else fd
 
         self.mask = 0
-        self.channel_masks: Dict[int, int] = {}
-        self.index_to_channel: Dict[int, int] = {}
+        self.channel_masks: dict[int, int] = {}
+        self.index_to_channel: dict[int, int] = {}
         self._can_protocol = CanProtocol.CAN_FD if is_fd else CanProtocol.CAN_20
 
         self._listen_only = listen_only
@@ -220,7 +213,7 @@ class VectorBus(BusABC):
                 # at the same time. If the VectorBus is instantiated with a config, that was returned from
                 # VectorBus._detect_available_configs(), then use the contained global channel_index
                 # to avoid any ambiguities.
-                channel_index = cast(int, _channel_index)
+                channel_index = cast("int", _channel_index)
             else:
                 channel_index = self._find_global_channel_idx(
                     channel=channel,
@@ -381,9 +374,9 @@ class VectorBus(BusABC):
     def _find_global_channel_idx(
         self,
         channel: int,
-        serial: Optional[int],
-        app_name: Optional[str],
-        channel_configs: List["VectorChannelConfig"],
+        serial: int | None,
+        app_name: str | None,
+        channel_configs: list["VectorChannelConfig"],
     ) -> int:
         if serial is not None:
             serial_found = False
@@ -410,7 +403,7 @@ class VectorBus(BusABC):
                 app_name, channel
             )
             idx = cast(
-                int, self.xldriver.xlGetChannelIndex(hw_type, hw_index, hw_channel)
+                "int", self.xldriver.xlGetChannelIndex(hw_type, hw_index, hw_channel)
             )
             if idx < 0:
                 # Undocumented behavior! See issue #353.
@@ -439,7 +432,7 @@ class VectorBus(BusABC):
         return bool(self.permission_mask & self.channel_masks[channel])
 
     def _read_bus_params(
-        self, channel_index: int, vcc_list: List["VectorChannelConfig"]
+        self, channel_index: int, vcc_list: list["VectorChannelConfig"]
     ) -> "VectorBusParams":
         for vcc in vcc_list:
             if vcc.channel_index == channel_index:
@@ -569,10 +562,10 @@ class VectorBus(BusABC):
         self,
         channel_mask: int,
         bitrate: int,
-        sample_point: Optional[float] = None,
+        sample_point: float | None = None,
         fd: bool = False,
-        data_bitrate: Optional[int] = None,
-        data_sample_point: Optional[float] = None,
+        data_bitrate: int | None = None,
+        data_sample_point: float | None = None,
     ) -> None:
         """Compare requested CAN settings to active settings in driver."""
         vcc_list = get_channel_configs()
@@ -660,7 +653,7 @@ class VectorBus(BusABC):
                     f"These are the currently active settings: {settings_string}."
                 )
 
-    def _apply_filters(self, filters: Optional[CanFilters]) -> None:
+    def _apply_filters(self, filters: CanFilters | None) -> None:
         if filters:
             # Only up to one filter per ID type allowed
             if len(filters) == 1 or (
@@ -710,9 +703,7 @@ class VectorBus(BusABC):
         except VectorOperationError as exc:
             LOG.warning("Could not reset filters: %s", exc)
 
-    def _recv_internal(
-        self, timeout: Optional[float]
-    ) -> Tuple[Optional[Message], bool]:
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
         end_time = time.time() + timeout if timeout is not None else None
 
         while True:
@@ -745,7 +736,7 @@ class VectorBus(BusABC):
                 # Wait a short time until we try again
                 time.sleep(self.poll_interval)
 
-    def _recv_canfd(self) -> Optional[Message]:
+    def _recv_canfd(self) -> Message | None:
         xl_can_rx_event = xlclass.XLcanRxEvent()
         self.xldriver.xlCanReceive(self.port_handle, xl_can_rx_event)
 
@@ -790,7 +781,7 @@ class VectorBus(BusABC):
             data=data_struct.data[:dlc],
         )
 
-    def _recv_can(self) -> Optional[Message]:
+    def _recv_can(self) -> Message | None:
         xl_event = xlclass.XLevent()
         event_count = ctypes.c_uint(1)
         self.xldriver.xlReceive(self.port_handle, event_count, xl_event)
@@ -846,7 +837,7 @@ class VectorBus(BusABC):
             `XL_CAN_EV_TAG_TX_ERROR`, `XL_TIMER` or `XL_CAN_EV_TAG_CHIP_STATE` tag.
         """
 
-    def send(self, msg: Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         self._send_sequence([msg])
 
     def _send_sequence(self, msgs: Sequence[Message]) -> int:
@@ -986,8 +977,8 @@ class VectorBus(BusABC):
         )
 
     @staticmethod
-    def _detect_available_configs() -> List[AutoDetectedConfig]:
-        configs = []
+    def _detect_available_configs() -> Sequence["AutoDetectedVectorConfig"]:
+        configs: list[AutoDetectedVectorConfig] = []
         channel_configs = get_channel_configs()
         LOG.info("Found %d channels", len(channel_configs))
         for channel_config in channel_configs:
@@ -1003,16 +994,13 @@ class VectorBus(BusABC):
             )
             configs.append(
                 {
-                    # data for use in VectorBus.__init__():
                     "interface": "vector",
                     "channel": channel_config.hw_channel,
                     "serial": channel_config.serial_number,
                     "channel_index": channel_config.channel_index,
-                    # data for use in VectorBus.set_application_config():
                     "hw_type": channel_config.hw_type,
                     "hw_index": channel_config.hw_index,
                     "hw_channel": channel_config.hw_channel,
-                    # additional information:
                     "supports_fd": bool(
                         channel_config.channel_capabilities
                         & xldefine.XL_ChannelCapabilities.XL_CHANNEL_FLAG_CANFD_ISO_SUPPORT
@@ -1020,7 +1008,7 @@ class VectorBus(BusABC):
                     "vector_channel_config": channel_config,
                 }
             )
-        return configs  # type: ignore
+        return configs
 
     @staticmethod
     def popup_vector_hw_configuration(wait_for_finish: int = 0) -> None:
@@ -1037,7 +1025,7 @@ class VectorBus(BusABC):
     @staticmethod
     def get_application_config(
         app_name: str, app_channel: int
-    ) -> Tuple[Union[int, xldefine.XL_HardwareType], int, int]:
+    ) -> tuple[int | xldefine.XL_HardwareType, int, int]:
         """Retrieve information for an application in Vector Hardware Configuration.
 
         :param app_name:
@@ -1083,7 +1071,7 @@ class VectorBus(BusABC):
     def set_application_config(
         app_name: str,
         app_channel: int,
-        hw_type: Union[int, xldefine.XL_HardwareType],
+        hw_type: int | xldefine.XL_HardwareType,
         hw_index: int,
         hw_channel: int,
         **kwargs: Any,
@@ -1177,7 +1165,7 @@ class VectorChannelConfig(NamedTuple):
     """NamedTuple which contains the channel properties from Vector XL API."""
 
     name: str
-    hw_type: Union[int, xldefine.XL_HardwareType]
+    hw_type: int | xldefine.XL_HardwareType
     hw_index: int
     hw_channel: int
     channel_index: int
@@ -1186,10 +1174,23 @@ class VectorChannelConfig(NamedTuple):
     channel_bus_capabilities: xldefine.XL_BusCapabilities
     is_on_bus: bool
     connected_bus_type: xldefine.XL_BusTypes
-    bus_params: Optional[VectorBusParams]
+    bus_params: VectorBusParams | None
     serial_number: int
     article_number: int
     transceiver_name: str
+
+
+class AutoDetectedVectorConfig(AutoDetectedConfig):
+    # data for use in VectorBus.__init__():
+    serial: int
+    channel_index: int
+    # data for use in VectorBus.set_application_config():
+    hw_type: int
+    hw_index: int
+    hw_channel: int
+    # additional information:
+    supports_fd: bool
+    vector_channel_config: VectorChannelConfig
 
 
 def _get_xl_driver_config() -> xlclass.XLdriverConfig:
@@ -1208,7 +1209,7 @@ def _get_xl_driver_config() -> xlclass.XLdriverConfig:
 
 def _read_bus_params_from_c_struct(
     bus_params: xlclass.XLbusParams,
-) -> Optional[VectorBusParams]:
+) -> VectorBusParams | None:
     bus_type = xldefine.XL_BusTypes(bus_params.busType)
     if bus_type is not xldefine.XL_BusTypes.XL_BUS_TYPE_CAN:
         return None
@@ -1243,14 +1244,14 @@ def _read_bus_params_from_c_struct(
     )
 
 
-def get_channel_configs() -> List[VectorChannelConfig]:
+def get_channel_configs() -> list[VectorChannelConfig]:
     """Read channel properties from Vector XL API."""
     try:
         driver_config = _get_xl_driver_config()
     except VectorError:
         return []
 
-    channel_list: List[VectorChannelConfig] = []
+    channel_list: list[VectorChannelConfig] = []
     for i in range(driver_config.channelCount):
         xlcc: xlclass.XLchannelConfig = driver_config.channel[i]
         vcc = VectorChannelConfig(
@@ -1277,7 +1278,7 @@ def get_channel_configs() -> List[VectorChannelConfig]:
     return channel_list
 
 
-def _hw_type(hw_type: int) -> Union[int, xldefine.XL_HardwareType]:
+def _hw_type(hw_type: int) -> int | xldefine.XL_HardwareType:
     try:
         return xldefine.XL_HardwareType(hw_type)
     except ValueError:

@@ -5,7 +5,8 @@ It is is compatible with "candump -L" from the canutils program
 """
 
 import logging
-from typing import Any, Generator, TextIO, Union
+from collections.abc import Generator
+from typing import Any, TextIO
 
 from can.message import Message
 
@@ -33,11 +34,9 @@ class CanutilsLogReader(TextIOMessageReader):
         ``(0.0) vcan0 001#8d00100100820100``
     """
 
-    file: TextIO
-
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         **kwargs: Any,
     ) -> None:
         """
@@ -64,7 +63,7 @@ class CanutilsLogReader(TextIOMessageReader):
             timestamp = float(timestamp_string[1:-1])
             can_id_string, data = frame.split("#", maxsplit=1)
 
-            channel: Union[int, str]
+            channel: int | str
             if channel_string.isdigit():
                 channel = int(channel_string)
             else:
@@ -133,7 +132,7 @@ class CanutilsLogWriter(TextIOMessageWriter):
 
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         channel: str = "vcan0",
         append: bool = False,
         **kwargs: Any,
@@ -147,13 +146,12 @@ class CanutilsLogWriter(TextIOMessageWriter):
         :param bool append: if set to `True` messages are appended to
                             the file, else the file is truncated
         """
-        mode = "a" if append else "w"
-        super().__init__(file, mode=mode)
+        super().__init__(file, mode="a" if append else "w")
 
         self.channel = channel
-        self.last_timestamp = None
+        self.last_timestamp: float | None = None
 
-    def on_message_received(self, msg):
+    def on_message_received(self, msg: Message) -> None:
         # this is the case for the very first message:
         if self.last_timestamp is None:
             self.last_timestamp = msg.timestamp or 0.0
@@ -165,7 +163,7 @@ class CanutilsLogWriter(TextIOMessageWriter):
             timestamp = msg.timestamp
 
         channel = msg.channel if msg.channel is not None else self.channel
-        if isinstance(channel, int) or isinstance(channel, str) and channel.isdigit():
+        if isinstance(channel, int) or (isinstance(channel, str) and channel.isdigit()):
             channel = f"can{channel}"
 
         framestr = f"({timestamp:f}) {channel}"

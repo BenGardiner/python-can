@@ -68,7 +68,7 @@ templates_path = ["_templates"]
 graphviz_output_format = "png"  # 'svg'
 
 # The suffix of source filenames.
-source_suffix = ".rst"
+source_suffix = {".rst": "restructuredtext"}
 
 # The encoding of source files.
 # source_encoding = 'utf-8-sig'
@@ -122,6 +122,12 @@ autodoc_typehints = "description"
 # disable specific warnings
 nitpick_ignore = [
     # Ignore warnings for type aliases. Remove once Sphinx supports PEP613
+    ("py:class", "OpenTextModeUpdating"),
+    ("py:class", "OpenTextModeWriting"),
+    ("py:class", "OpenBinaryModeUpdating"),
+    ("py:class", "OpenBinaryModeWriting"),
+    ("py:class", "OpenTextModeReading"),
+    ("py:class", "OpenBinaryModeReading"),
     ("py:class", "BusConfig"),
     ("py:class", "can.typechecking.BusConfig"),
     ("py:class", "can.typechecking.CanFilter"),
@@ -132,11 +138,11 @@ nitpick_ignore = [
     ("py:class", "~P1"),
     # intersphinx fails to reference some builtins
     ("py:class", "asyncio.events.AbstractEventLoop"),
-    ("py:class", "_thread.allocate_lock"),
+    ("py:class", "_thread.lock"),
 ]
 
 # mock windows specific attributes
-autodoc_mock_imports = ["win32com"]
+autodoc_mock_imports = ["win32com", "pythoncom"]
 ctypes.windll = MagicMock()
 ctypesutil.HRESULT = ctypes.c_long
 

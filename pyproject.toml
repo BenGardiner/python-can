@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools >= 67.7", "setuptools_scm>=8"]
+requires = ["setuptools >= 77.0", "setuptools_scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,14 +8,12 @@ dynamic = ["readme", "version"]
 description = "Controller Area Network interface module for Python"
 authors = [{ name = "python-can contributors" }]
 dependencies = [
-    "wrapt~=1.10",
+    "wrapt >= 1.10, < 3",
     "packaging >= 23.1",
     "typing_extensions>=3.10.0.0",
-    "msgpack~=1.0.0; platform_system != 'Windows'",
-    "pywin32>=305; platform_system == 'Windows' and platform_python_implementation == 'CPython'",
 ]
-requires-python = ">=3.8"
-license = { text = "LGPL v3" }
+requires-python = ">=3.10"
+license = "LGPL-3.0-only"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -24,17 +22,16 @@ classifiers = [
     "Intended Audience :: Information Technology",
     "Intended Audience :: Manufacturing",
     "Intended Audience :: Telecommunications Industry",
-    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
     "Natural Language :: English",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
     "Topic :: Software Development :: Embedded Systems",
@@ -51,6 +48,7 @@ can_logconvert = "can.logconvert:main"
 can_logger = "can.logger:main"
 can_player = "can.player:main"
 can_viewer = "can.viewer:main"
+can_bridge = "can.bridge:main"
 
 [project.urls]
 homepage = "https://github.com/hardbyte/python-can"
@@ -59,28 +57,58 @@ repository = "https://github.com/hardbyte/python-can"
 changelog = "https://github.com/hardbyte/python-can/blob/develop/CHANGELOG.md"
 
 [project.optional-dependencies]
-lint = [
-    "pylint==3.2.*",
-    "ruff==0.4.8",
-    "black==24.4.*",
-    "mypy==1.10.*",
-]
+pywin32 = ["pywin32>=305; platform_system == 'Windows' and platform_python_implementation == 'CPython'"]
 seeedstudio = ["pyserial>=3.0"]
 serial = ["pyserial~=3.0"]
 neovi = ["filelock", "python-ics>=2.12"]
 canalystii = ["canalystii>=0.1.0"]
 cantact = ["cantact>=0.0.7"]
 cvector = ["python-can-cvector"]
-gs_usb = ["gs_usb>=0.2.1"]
+gs-usb = ["gs-usb>=0.2.1"]
 nixnet = ["nixnet>=0.3.2"]
 pcan = ["uptime~=3.0.1"]
 remote = ["python-can-remote"]
 sontheim = ["python-can-sontheim>=0.1.2"]
 canine = ["python-can-canine>=0.2.2"]
+zlgcan = ["zlgcan"]
+candle = ["python-can-candle>=1.2.2"]
+rp1210 = ["rp1210>=1.0.1"]
+damiao = ["python-can-damiao"]
 viewer = [
     "windows-curses; platform_system == 'Windows' and platform_python_implementation=='CPython'"
 ]
 mf4 = ["asammdf>=6.0.0"]
+multicast = ["msgpack~=1.1.0"]
+
+[dependency-groups]
+docs = [
+    "sphinx>=5.2.3",
+    "sphinxcontrib-programoutput",
+    "sphinx-inline-tabs",
+    "sphinx-copybutton",
+    "furo",
+]
+lint = [
+    "pylint==4.0.*",
+    "ruff==0.14.*",
+    "black==25.12.*",
+    "mypy==1.19.*",
+]
+test = [
+    "pytest==9.0.*",
+    "pytest-timeout==2.4.*",
+    "pytest-modern==0.7.*;platform_system!='Windows'",
+    "coveralls==4.0.*",
+    "pytest-cov==7.0.*",
+    "coverage==7.13.*",
+    "hypothesis==6.*",
+    "parameterized==0.9.*",
+]
+dev = [
+    {include-group = "docs"},
+    {include-group = "lint"},
+    {include-group = "test"},
+]
 
 [tool.setuptools.dynamic]
 readme = { file = "README.rst" }
@@ -105,11 +133,9 @@ disallow_incomplete_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 exclude = [
-    "venv",
-    "^doc/conf.py$",
     "^build",
+    "^doc/conf.py$",
     "^test",
-    "^can/interfaces/__init__.py",
     "^can/interfaces/etas",
     "^can/interfaces/gs_usb",
     "^can/interfaces/ics_neovi",
@@ -119,20 +145,16 @@ exclude = [
     "^can/interfaces/nican",
     "^can/interfaces/neousys",
     "^can/interfaces/pcan",
-    "^can/interfaces/serial",
-    "^can/interfaces/slcan",
     "^can/interfaces/socketcan",
     "^can/interfaces/systec",
-    "^can/interfaces/udp_multicast",
     "^can/interfaces/usb2can",
-    "^can/interfaces/virtual",
 ]
 
 [tool.ruff]
 line-length = 100
 
 [tool.ruff.lint]
-select = [
+extend-select = [
     "A",  # flake8-builtins
     "B",  # flake8-bugbear
     "C4",  # flake8-comprehensions
@@ -163,13 +185,18 @@ ignore = [
     "PGH003",  # blanket-type-ignore
     "RUF012",  # mutable-class-default
 ]
+"can/cli.py" = ["T20"]  # flake8-print
 "can/logger.py" = ["T20"]  # flake8-print
 "can/player.py" = ["T20"]  # flake8-print
+"can/bridge.py" = ["T20"]  # flake8-print
+"can/viewer.py" = ["T20"]  # flake8-print
+"examples/*" = ["T20"]  # flake8-print
 
 [tool.ruff.lint.isort]
 known-first-party = ["can"]
 
 [tool.pylint]
+extension-pkg-allow-list = ["curses"]
 disable = [
     "cyclic-import",
     "duplicate-code",
@@ -185,6 +212,45 @@ disable = [
     "too-many-branches",
     "too-many-instance-attributes",
     "too-many-locals",
+    "too-many-positional-arguments",
     "too-many-public-methods",
     "too-many-statements",
 ]
+
+[tool.towncrier]
+directory = "doc/changelog.d"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+underlines = ["", "", ""]
+title_format = "## Version [{version}](https://github.com/hardbyte/python-can/tree/{version}) - {project_date}"
+issue_format = "[#{issue}](https://github.com/hardbyte/python-can/issues/{issue})"
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "deprecated"
+name = "Deprecated"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true

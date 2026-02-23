@@ -1,8 +1,109 @@
-Version 4.4.2
-=============
+# Changelog
 
-Bug Fixes
----------
+<!--
+All notable changes to this project will be documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+This project uses [*towncrier*](https://towncrier.readthedocs.io/) and the changes for the upcoming release can be found in <https://github.com/hardbyte/python-can/tree/main/doc/changelog.d/>.
+-->
+
+<!-- towncrier release notes start -->
+
+## Version [v4.6.1](https://github.com/hardbyte/python-can/tree/v4.6.1) - 2025-08-12
+
+### Fixed
+
+- Fix initialisation of an slcan bus, when setting a bitrate. When using CAN 2.0 (not FD), the default setting for `data_bitrate` was invalid, causing an exception. ([#1978](https://github.com/hardbyte/python-can/issues/1978))
+
+
+## Version [v4.6.0](https://github.com/hardbyte/python-can/tree/v4.6.0) - 2025-08-05
+
+### Removed
+
+- Remove support for Python 3.8. ([#1931](https://github.com/hardbyte/python-can/issues/1931))
+- Unknown command line arguments ("extra args") are no longer passed down to `can.Bus()` instantiation. Use the `--bus-kwargs` argument instead. ([#1949](https://github.com/hardbyte/python-can/issues/1949))
+- Remove `can.io.generic.BaseIOHandler` class. Improve `can.io.*` type annotations by using `typing.Generic`. ([#1951](https://github.com/hardbyte/python-can/issues/1951))
+
+### Added
+
+- Support 11-bit identifiers in the `serial` interface. ([#1758](https://github.com/hardbyte/python-can/issues/1758))
+- Keep track of active Notifiers and make Notifier usable as a context manager. Add function `Notifier.find_instances(bus)` to find the active Notifier for a given bus instance. ([#1890](https://github.com/hardbyte/python-can/issues/1890))
+- Add Windows support to `udp_multicast` interface. ([#1914](https://github.com/hardbyte/python-can/issues/1914))
+- Add FD support to `slcan` according to CANable 2.0 implementation. ([#1920](https://github.com/hardbyte/python-can/issues/1920))
+- Add support for error messages to the `socketcand` interface. ([#1941](https://github.com/hardbyte/python-can/issues/1941))
+- Add support for remote and error frames in the `serial` interface. ([#1948](https://github.com/hardbyte/python-can/issues/1948))
+- Add public functions `can.cli.add_bus_arguments` and `can.cli.create_bus_from_namespace` for creating bus command line options. Currently downstream packages need to implement their own logic to configure *python-can* buses. Now *python-can* can create and parse bus options for third party packages. ([#1949](https://github.com/hardbyte/python-can/issues/1949))
+- Add support for remote frames to `TRCReader`. ([#1953](https://github.com/hardbyte/python-can/issues/1953))
+- Mention the `python-can-candle` package in the plugin interface section of the documentation. ([#1954](https://github.com/hardbyte/python-can/issues/1954))
+- Add new CLI tool `python -m can.bridge` (or just `can_bridge`) to create a software bridge between two physical buses. ([#1961](https://github.com/hardbyte/python-can/issues/1961))
+
+### Changed
+
+- Allow sending Classic CAN frames with a DLC value larger than 8 using the `socketcan` interface. ([#1851](https://github.com/hardbyte/python-can/issues/1851))
+- The `gs_usb` extra dependency was renamed to `gs-usb`.
+  The `lint` extra dependency was removed and replaced with new PEP 735 dependency groups `lint`, `docs` and `test`. ([#1945](https://github.com/hardbyte/python-can/issues/1945))
+- Update dependency name from `zlgcan-driver-py` to `zlgcan`. ([#1946](https://github.com/hardbyte/python-can/issues/1946))
+- Use ThreadPoolExecutor in `detect_available_configs()` to reduce runtime and add `timeout` parameter. ([#1947](https://github.com/hardbyte/python-can/issues/1947))
+- Update contribution guide. ([#1960](https://github.com/hardbyte/python-can/issues/1960))
+
+### Fixed
+
+- Fix a bug in `slcanBus.get_version()` and `slcanBus.get_serial_number()`: If any other data was received during the function call, then `None` was returned. ([#1904](https://github.com/hardbyte/python-can/issues/1904))
+- Fix incorrect padding of CAN FD payload in `BlfReader`. ([#1906](https://github.com/hardbyte/python-can/issues/1906))
+- Set correct message direction for messages received with `kvaser` interface and `receive_own_messages=True`. ([#1908](https://github.com/hardbyte/python-can/issues/1908))
+- Fix timestamp rounding error in `BlfWriter`. ([#1921](https://github.com/hardbyte/python-can/issues/1921))
+- Fix timestamp rounding error in `BlfReader`. ([#1927](https://github.com/hardbyte/python-can/issues/1927))
+- Handle timer overflow message and build timestamp according to the epoch in the `ixxat` interface. ([#1934](https://github.com/hardbyte/python-can/issues/1934))
+- Avoid unsupported `ioctl` function call to allow usage of the `udp_multicast` interface on MacOS. ([#1940](https://github.com/hardbyte/python-can/issues/1940))
+- Fix configuration file parsing for the `state` bus parameter. ([#1957](https://github.com/hardbyte/python-can/issues/1957))
+- Mf4Reader: support non-standard `CAN_DataFrame.Dir` values in mf4 files created by [ihedvall/mdflib](https://github.com/ihedvall/mdflib). ([#1967](https://github.com/hardbyte/python-can/issues/1967))
+- PcanBus: Set `Message.channel` attribute in `PcanBus.recv()`. ([#1969](https://github.com/hardbyte/python-can/issues/1969))
+
+
+## Version 4.5.0
+
+### Features
+
+* gs_usb command-line support (and documentation updates and stability fixes) by @BenGardiner in https://github.com/hardbyte/python-can/pull/1790
+* Faster and more general MF4 support by @cssedev in https://github.com/hardbyte/python-can/pull/1892
+* ASCWriter speed improvement by @pierreluctg in https://github.com/hardbyte/python-can/pull/1856
+* Faster Message string representation by @pierreluctg in https://github.com/hardbyte/python-can/pull/1858
+* Added Netronic's CANdo and CANdoISO adapters interface by @belliriccardo in https://github.com/hardbyte/python-can/pull/1887
+* Add autostart option to BusABC.send_periodic() to fix issue #1848 by @SWolfSchunk in https://github.com/hardbyte/python-can/pull/1853
+* Improve TestBusConfig by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1804
+* Improve speed of TRCReader by @lebuni in https://github.com/hardbyte/python-can/pull/1893
+
+### Bug Fixes
+
+* Fix Kvaser timestamp by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1878
+* Set end_time in ThreadBasedCyclicSendTask.start() by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1871
+* Fix regex in _parse_additional_config() by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1868
+* Fix for #1849 (PCAN fails when PCAN_ERROR_ILLDATA is read via ReadFD) by @bures in https://github.com/hardbyte/python-can/pull/1850
+* Period must be >= 1ms for BCM using Win32 API by @pierreluctg in https://github.com/hardbyte/python-can/pull/1847
+* Fix ASCReader Crash on "Start of Measurement" Line by @RitheeshBaradwaj in https://github.com/hardbyte/python-can/pull/1811
+* Resolve AttributeError within NicanError by @vijaysubbiah20 in https://github.com/hardbyte/python-can/pull/1806
+
+
+### Miscellaneous
+
+* Fix CI by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1889
+* Update msgpack dependency by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1875
+* Add tox environment for doctest by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1870
+* Use typing_extensions.TypedDict on python < 3.12 for pydantic support by @NickCao in https://github.com/hardbyte/python-can/pull/1845
+* Replace PyPy3.8 with PyPy3.10 by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1838
+* Fix slcan tests by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1834
+* Test on Python 3.13 by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1833
+* Stop notifier in examples by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1814
+* Use setuptools_scm by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1810
+* Added extra info for Kvaser dongles by @FedericoSpada in https://github.com/hardbyte/python-can/pull/1797
+* Socketcand: show actual response as well as expected in error by @liamkinne in https://github.com/hardbyte/python-can/pull/1807
+* Refactor CLI filter parsing, add tests by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1805
+* Add zlgcan to docs by @zariiii9003 in https://github.com/hardbyte/python-can/pull/1839
+
+
+## Version 4.4.2
+
+### Bug Fixes
+
 * Remove `abstractmethod` decorator from `Listener.stop()` (#1770, #1795)
 * Fix `SizedRotatingLogger` file suffix bug (#1792, #1793)
 * gs_usb: Use `BitTiming` class internally to configure bitrate (#1747, #1748)
@@ -11,8 +112,7 @@ Bug Fixes
 * socketcan: Do not log exception on non-linux platforms (#1800)
 * vector, kvaser: Activate channels after CAN filters were applied (#1413, #1708, #1796)
 
-Features
---------
+### Features
 
 * kvaser: Add support for non-ISO CAN FD (#1752)
 * neovi: Return timestamps relative to epoch (#1789)
@@ -21,11 +121,9 @@ Features
 * vector: Add support for `listen_only` mode (#1764)
 
 
-Version 4.4.0
-=============
+## Version 4.4.0
 
-Features
---------
+### Features
 
 * TRC 1.3 Support: Added support for .trc log files as generated by PCAN Explorer v5 and other tools, expanding compatibility with common log file formats (#1753).
 * ASCReader refactor: improved the ASCReader code (#1717).
@@ -35,17 +133,14 @@ Features
 * CAN FD Bus Connection for VectorBus: Enabled connecting to CAN FD buses without specifying bus timings, simplifying the connection process for users (#1716).
 * Neousys Configs Detection: Updated the detection mechanism for available Neousys configurations, ensuring more accurate and comprehensive configuration discovery (#1744).
 
-
-Bug Fixes
----------
+### Bug Fixes
 
 * Send Periodic Messages: Fixed an issue where fixed-duration periodic messages were sent one extra time beyond their intended count (#1713).
 * Vector Interface on Windows 11: Addressed compatibility issues with the Vector interface on Windows 11, ensuring stable operation across the latest OS version (#1731).
 * ASCWriter Millisecond Handling: Corrected the handling of milliseconds in ASCWriter, ensuring accurate time representation in log files (#1734).
 * Various minor bug fixes: Addressed several minor bugs to improve overall stability and performance.
 
-Miscellaneous
--------------
+### Miscellaneous
 
 * Invert default value logic for BusABC._is_shutdown. (#1774)
 * Implemented various logging enhancements to provide more detailed and useful operational insights (#1703).
@@ -55,29 +150,27 @@ Miscellaneous
 The release also includes various other minor enhancements and bug fixes aimed at improving the reliability and performance of the software.
 
 
-Version 4.3.1
-=============
+## Version 4.3.1
 
-Bug Fixes
----------
+### Bug Fixes
+
 * Fix socketcand erroneously discarding frames (#1700)
 * Fix initialization order in EtasBus (#1693, #1704)
 
-Documentation
--------------
+### Documentation
+
 * Fix install instructions for neovi (#1694, #1697)
 
 
-Version 4.3.0
-=============
+## Version 4.3.0
 
-Breaking Changes
-----------------
+### Breaking Changes
+
 * Raise Minimum Python Version to 3.8 (#1597)
 * Do not stop notifier if exception was handled (#1645)
 
-Bug Fixes
----------
+### Bug Fixes
+
 * Vector: channel detection fails, if there is an active flexray channel  (#1634)
 * ixxat: Fix exception in 'state' property on bus coupling errors (#1647)
 * NeoVi: Fixed serial number range (#1650)
@@ -88,20 +181,22 @@ Bug Fixes
 * Vector: Skip the `can_op_mode check` if the device reports `can_op_mode=0` (#1678)
 * Vector: using the config from `detect_available_configs` might raise XL_ERR_INVALID_CHANNEL_MASK error (#1681)
 
-Features
---------
+### Features
 
-### API
+#### API
+
 * Add `modifier_callback` parameter to `BusABC.send_periodic` for auto-modifying cyclic tasks (#703)
 * Add `protocol` property to BusABC to determine active CAN Protocol (#1532)
 * Change Bus constructor implementation and typing (#1557)
 * Add optional `strict` parameter to relax BitTiming & BitTimingFd Validation (#1618)
 * Add `BitTiming.iterate_from_sample_point` static methods (#1671)
 
-### IO
+#### IO
+
 * Can Player compatibility with interfaces that use additional configuration (#1610)
 
-### Interface Improvements
+#### Interface Improvements
+
 * Kvaser: Add BitTiming/BitTimingFd support to KvaserBus (#1510)
 * Ixxat: Implement `detect_available_configs` for the Ixxat bus. (#1607)
 * NeoVi: Enable send and receive on network ID above 255 (#1627)
@@ -111,7 +206,8 @@ Features
 * Kvaser: add parameter exclusive and `override_exclusive` (#1660)
 * socketcand: Add parameter `tcp_tune` to reduce latency (#1683)
 
-### Miscellaneous
+#### Miscellaneous
+
 * Distinguish Text/Binary-IO for Reader/Writer classes. (#1585)
 * Convert setup.py to pyproject.toml (#1592)
 * activate ruff pycodestyle checks (#1602)
@@ -125,32 +221,29 @@ Features
 * Add Python 3.12 Support / Test Python 3.12 (#1673)
 
 
-Version 4.2.2
-=============
+## Version 4.2.2
 
-Bug Fixes
----------
+### Bug Fixes
+
 * Fix socketcan KeyError (#1598, #1599).
 * Fix IXXAT not properly shutdown message (#1606).
 * Fix Mf4Reader and TRCReader incompatibility with extra CLI args (#1610).
 * Fix decoding error in Kvaser constructor for non-ASCII product name (#1613). 
 
 
-Version 4.2.1
-=============
+## Version 4.2.1
 
-Bug Fixes
----------
+### Bug Fixes
+
 * The ASCWriter now logs the correct channel for error frames (#1578, #1583).
 * Fix PCAN library detection (#1579, #1580).
 * On Windows, the first two periodic frames were sent without delay (#1590).
 
 
-Version 4.2.0
-=============
+## Version 4.2.0
 
-Breaking Changes
-----------------
+### Breaking Changes
+
 * The ``can.BitTiming`` class was replaced with the new 
   ``can.BitTiming`` and `can.BitTimingFd` classes (#1468, #1515). 
   Early adopters of ``can.BitTiming`` will need to update their code. Check the 
@@ -165,17 +258,16 @@ Breaking Changes
   There are open pull requests for kvaser (#1510), slcan (#1512) and usb2can (#1511). Testing
   and reviewing of these open PRs would be most appreciated.
 
-Features
---------
+### Features
 
-### IO
+#### IO
 * Add support for MF4 files (#1289).
 * Add support for version 2 TRC files and other TRC file enhancements (#1530).
 
-### Type Annotations
+#### Type Annotations
 * Export symbols to satisfy type checkers (#1547, #1551, #1558, #1568).
 
-### Interface Improvements
+#### Interface Improvements
 * Add ``__del__`` method to ``can.BusABC`` to automatically release resources (#1489, #1564).
 * pcan: Update PCAN Basic to 4.6.2.753 (#1481).
 * pcan: Use select instead of polling on Linux (#1410).
@@ -187,21 +279,21 @@ Features
 * vector: Only check sample point instead of tseg & sjw (#1486).
 * vector: add VN5611 hwtype (#1501).
 
-Documentation
--------------
+### Documentation
+
 * Add new section about related tools to documentation. Add a list of
   plugin interface packages (#1457).
 
-Bug Fixes
----------
+### Bug Fixes
+
 * Automatic type conversion for config values (#1498, #1499).
 * pcan: Fix ``Bus.__new__`` for CAN-FD interfaces (#1458, #1460).
 * pcan: Fix Detection of Library on Windows on ARM (#1463).
 * socketcand: extended ID bug fixes (#1504, #1508).
 * vector: improve robustness against unknown HardwareType values (#1500, #1502).
 
-Deprecations
-------------
+### Deprecations
+
 * The ``bustype`` parameter of ``can.Bus`` is deprecated and will be 
   removed in version 5.0, use ``interface`` instead. (#1462).
 * The ``context`` parameter of ``can.Bus`` is deprecated and will be 
@@ -213,8 +305,8 @@ Deprecations
 * The ``brs`` and ``log_errors`` parameters of `` NiXNETcanBus`` are deprecated 
   and will be removed in version 5.0. (#1520).
 
-Miscellaneous
--------------
+### Miscellaneous
+
 * Use high resolution timer on Windows to improve 
   timing precision for BroadcastManager (#1449).
 * Improve ThreadBasedCyclicSendTask timing (#1539).
@@ -226,11 +318,9 @@ Miscellaneous
 * Add deprecation period to utility function ``deprecated_args_alias`` (#1477).
 * Add `ruff` to the CI system (#1551)
 
-Version 4.1.0
-=============
+## Version 4.1.0
 
-Breaking Changes
-----------------
+### Breaking Changes
 
 * ``windows-curses`` was moved to optional dependencies (#1395). 
   Use ``pip install python-can[viewer]`` if you are using the ``can.viewer`` 
@@ -239,11 +329,9 @@ Breaking Changes
   from camelCase to snake_case (#1422).
 
 
-Features
---------
+### Features
 
-### IO
-
+#### IO
 * The canutils logger preserves message direction (#1244) 
   and uses common interface names (e.g. can0) instead of just 
   channel numbers (#1271).
@@ -254,11 +342,11 @@ Features
   and player initialisation (#1366).
 * Initial support for TRC files (#1217)
 
-### Type Annotations
+#### Type Annotations
 * python-can now includes the ``py.typed`` marker to support type checking 
   according to PEP 561 (#1344).
 
-### Interface Improvements
+#### Interface Improvements
 * The gs_usb interface can be selected by device index instead 
   of USB bus/address. Loopback frames are now correctly marked 
   with the ``is_rx`` flag (#1270).
@@ -272,8 +360,7 @@ Features
   be applied according to the arguments of ``VectorBus.__init__`` (#1426).
 * Ixxat bus now implements BusState api and detects errors (#1141)
 
-Bug Fixes
----------
+### Bug Fixes
 
 * Improve robustness of USB2CAN serial number detection (#1129).
 * Fix channel2int conversion (#1268, #1269).
@@ -295,8 +382,7 @@ Bug Fixes
 * Raise ValueError if gzip is used with incompatible log formats (#1429).
 * Allow restarting of transmission tasks for socketcan (#1440)
 
-Miscellaneous
--------------
+### Miscellaneous
 
 * Allow ICSApiError to be pickled and un-pickled (#1341)
 * Sort interface names in CLI API to make documentation reproducible (#1342)
@@ -306,8 +392,7 @@ Miscellaneous
 * Migrate code coverage reporting from Codecov to Coveralls (#1430)
 * Migrate building docs and publishing releases to PyPi from Travis-CI to GitHub Actions (#1433)
 
-Version 4.0.0
-====
+## Version 4.0.0
 
 TL;DR: This release includes a ton of improvements from 2.5 years of development! 🎉 Test thoroughly after switching.
 
@@ -321,8 +406,7 @@ Therefore, users are strongly advised to thoroughly test their programs against 
 Re-reading the documentation for your interfaces might be helpful too as limitations and capabilities might have changed or are more explicit.
 While we did try to avoid breaking changes, in some cases it was not feasible and in particular, many implementation details have changed.
 
-Major features
---------------
+### Major features
 
 * Type hints for the core library and some interfaces (#652 and many others)
 * Support for Python 3.7-3.10+ only (dropped support for Python 2.* and 3.5-3.6) (#528 and many others)
@@ -330,8 +414,7 @@ Major features
 * [Support for automatic configuration detection](https://python-can.readthedocs.io/en/develop/api.html#can.detect_available_configs) in most interfaces (#303, #640, #641, #811, #1077, #1085)
 * Better alignment of interfaces and IO to common conventions and semantics
 
-New interfaces
---------------
+### New interfaces
 
 * udp_multicast (#644)
 * robotell (#731)
@@ -342,8 +425,7 @@ New interfaces
 * socketcand (#1140)
 * etas (#1144)
 
-Improved interfaces
--------------------
+### Improved interfaces
 
 * socketcan
   * Support for multiple Cyclic Messages in Tasks (#610)
@@ -420,8 +502,7 @@ Improved interfaces
   * Fix transmitting onto a busy bus (#1114)
   * Replace binary library with python driver (#726, #1127)
 
-Other API changes and improvements
-----------------------------------
+### Other API changes and improvements
 
 * CAN FD frame support is pretty complete (#963)
   * ASCWriter (#604) and ASCReader (#741)
@@ -452,8 +533,7 @@ Other API changes and improvements
 * Add changed byte highlighting to viewer.py (#1159)
 * Change DLC to DL in Message.\_\_str\_\_() (#1212)
 
-Other Bugfixes
---------------
+### Other Bugfixes
 
 * BLF PDU padding (#459)
 * stop_all_periodic_tasks skipping every other task (#634, #637, #645)
@@ -479,8 +559,7 @@ Other Bugfixes
 * Some smaller bugfixes are not listed here since the problems were never part of a proper release
 * ASCReader & ASCWriter using DLC as data length (#1245, #1246)
 
-Behind the scenes & Quality assurance
--------------------------------------
+### Behind the scenes & Quality assurance
 
 * We publish both source distributions (`sdist`) and binary wheels (`bdist_wheel`) (#1059, #1071)
 * Many interfaces were partly rewritten to modernize the code or to better handle errors
@@ -498,16 +577,13 @@ Behind the scenes & Quality assurance
   * [Good test coverage](https://app.codecov.io/gh/hardbyte/python-can/branch/develop) for all but the interfaces
 * Testing: Many of the new features directly added tests, and coverage of existing code was improved too (for example: #1031, #581, #585, #586, #942, #1196, #1198)
 
-Version 3.3.4
-====
+## Version 3.3.4
 
 Last call for Python2 support.
 
 * #850 Fix socket.error is a deprecated alias of OSError used on Python versions lower than 3.3.
 
-Version 3.3.3
-====
-
+## Version 3.3.3
 Backported fixes from 4.x development branch which targets Python 3.
 
 * #798 Backport caching msg.data value in neovi interface.
@@ -525,37 +601,30 @@ Backported fixes from 4.x development branch which targets Python 3.
 * #605 Socketcan BCM status fix.
 
 
-Version 3.3.2
-====
+## Version 3.3.2
 
 Minor bug fix release addressing issue in PCAN RTR.
 
-Version 3.3.1
-====
+## Version 3.3.1
 
 Minor fix to setup.py to only require pytest-runner when necessary.
 
-Version 3.3.0
-====
+## Version 3.3.0
 
 * Adding CAN FD 64 frame support to blf reader
 * Updates to installation instructions
 * Clean up bits generator in PCAN interface #588
 * Minor fix to use latest tools when building wheels on travis.
 
-Version 3.2.1
-====
+## Version 3.2.1
 
 * CAN FD 64 frame support to blf reader
 * Minor fix to use latest tools when building wheels on travis.
 * Updates links in documentation.
 
-Version 3.2.0
-====
+## Version 3.2.0
 
-
-Major features
---------------
+### Major features
 
 * FD support added for Pcan by @bmeisels with input from
   @markuspi, @christiansandberg & @felixdivo in PR #537
@@ -563,8 +632,7 @@ Major features
   and Python 3.5. Support has been removed for Python 3.4 in this
   release in PR #532
 
-Other notable changes
----------------------
+### Other notable changes
 
 * #533 BusState is now an enum.
 * #535 This release should automatically be published to PyPi by travis.
@@ -579,26 +647,21 @@ https://github.com/hardbyte/python-can/milestone/7?closed=1
 
 Pulls: #522, #526, #527, #536, #540, #546, #547, #548, #533, #559, #569, #571, #572, #575
 
-Backend Specific Changes
-------------------------
+### Backend Specific Changes
 
-pcan
-~~~~
+#### pcan
 
 * FD
 
-slcan
-~~~~
+#### slcan
 
 * ability to set custom can speed instead of using predefined speed values. #553
 
-socketcan
-~~~~
+#### socketcan
 
 * Bug fix to properly support 32bit systems. #573
 
-usb2can
-~~~~
+#### usb2can
 
 * slightly better error handling
 * multiple serial devices can be found
@@ -606,25 +669,20 @@ usb2can
 
 Pulls #511, #535
 
-vector
-~~~~
+#### vector
 
 * handle `app_name`. #525
 
-Version 3.1.1
-====
+## Version 3.1.1
 
-Major features
---------------
+### Major features
 
 Two new interfaces this release:
 
 - SYSTEC contributed by @idaniel86 in PR #466
 - CANalyst-II contributed by @smeng9 in PR #476
 
-
-Other notable changes
----------------------
+### Other notable changes
 
 * #477 The kvaser interface now supports bus statistics via a custom bus method.
 * #434 neovi now supports receiving own messages
@@ -641,18 +699,15 @@ Other notable changes
 * #455 Fix to `Message` initializer
 * Small bugfixes and improvements
 
-Version 3.1.0
-====
+## Version 3.1.0
 
 Version 3.1.0 was built with old wheel and/or setuptools
 packages and was replaced with v3.1.1 after an installation
 but was discovered.
 
-Version 3.0.0
-====
+## Version 3.0.0
 
-Major features
---------------
+### Major features
 
 * Adds support for developing `asyncio` applications with `python-can` more easily. This can be useful
   when implementing protocols that handles simultaneous connections to many nodes since you can write
@@ -665,8 +720,7 @@ Major features
   by calling the bus's new `stop_all_periodic_tasks` method. #412
 
 
-Breaking changes
-----------------
+### Breaking changes
 
 * Interfaces should no longer override `send_periodic` and instead implement
   `_send_periodic_internal` to allow the Bus base class to manage tasks. #426
@@ -676,8 +730,7 @@ Breaking changes
   read/writer constructors from `filename` to `file`.
 
 
-Other notable changes
----------------------
+### Other notable changes
 
 * can.Message class updated #413
     - Addition of a `Message.equals` method.
@@ -709,59 +762,48 @@ Other notable changes
 
 General fixes, cleanup and docs changes: (#347, #348, #367, #368, #370, #371, #373, #420, #417, #419, #432)
 
-Backend Specific Changes
-------------------------
+### Backend Specific Changes
 
-3rd party interfaces
-~~~~~~~~~~~~~~~~~~~~
+#### 3rd party interfaces
 
 * Deprecated `python_can.interface` entry point instead use `can.interface`. #389
 
-neovi
-~~~~~
+#### neovi
 
 * Added support for CAN-FD #408
 * Fix issues checking if bus is open. #381
 * Adding multiple channels support. #415
 
-nican
-~~~~~
+#### nican
 
 * implements reset instead of custom `flush_tx_buffer`. #364
 
-pcan
-~~~~
+#### pcan
 
 * now supported on OSX. #365
 
-
-serial
-~~~~~~
+#### serial
 
 * Removed TextIOWrapper from serial. #383
 * switch to `serial_for_url` enabling using remote ports via `loop://`, ``socket://` and `rfc2217://` URLs. #393
 * hardware handshake using `rtscts` kwarg #402
 
-socketcan
-~~~~~~~~~
+#### socketcan
 
 * socketcan tasks now reuse a bcm socket #404, #425, #426,
 * socketcan bugfix to receive error frames #384
 
-vector
-~~~~~~
+#### vector
 
 * Vector interface now implements `_detect_available_configs`. #362
 * Added support to select device by serial number. #387
 
-Version 2.2.1 (2018-07-12)
-=====
+## Version 2.2.1 (2018-07-12)
 
 * Fix errors and warnings when importing library on Windows
 * Fix Vector backend raising ValueError when hardware is not connected
 
-Version 2.2.0 (2018-06-30)
-=====
+## Version 2.2.0 (2018-06-30)
 
 * Fallback message filtering implemented in Python for interfaces that don't offer better accelerated mechanism.
 * SocketCAN interfaces have been merged (Now use `socketcan` instead of either `socketcan_native` and `socketcan_ctypes`),
@@ -772,8 +814,7 @@ Version 2.2.0 (2018-06-30)
 * Dropped support for Python 3.3 (officially reached end-of-life in Sept. 2017)
 * Deprecated the old `CAN` module, please use the newer `can` entry point (will be removed in an upcoming major version)
 
-Version 2.1.0 (2018-02-17)
-=====
+## Version 2.1.0 (2018-02-17)
 
 * Support for out of tree can interfaces with pluggy.
 * Initial support for CAN-FD for socketcan_native and kvaser interfaces.
@@ -785,8 +826,7 @@ Version 2.1.0 (2018-02-17)
 * Other misc improvements and bug fixes
 
 
-Version 2.0.0 (2018-01-05
-=====
+## Version 2.0.0 (2018-01-05)
 
 After an extended baking period we have finally tagged version 2.0.0!
 

@@ -8,8 +8,9 @@ Example .asc files:
 
 import logging
 import re
+from collections.abc import Generator
 from datetime import datetime
-from typing import Any, Dict, Final, Generator, List, Optional, TextIO, Union
+from typing import Any, Final, TextIO
 
 from ..message import Message
 from ..typechecking import StringPathLike
@@ -38,11 +39,9 @@ class ASCReader(TextIOMessageReader):
     bus statistics, J1939 Transport Protocol messages) is ignored.
     """
 
-    file: TextIO
-
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         base: str = "hex",
         relative_timestamp: bool = True,
         **kwargs: Any,
@@ -65,10 +64,10 @@ class ASCReader(TextIOMessageReader):
         self.base = base
         self._converted_base = self._check_base(base)
         self.relative_timestamp = relative_timestamp
-        self.date: Optional[str] = None
+        self.date: str | None = None
         self.start_time = 0.0
         # TODO - what is this used for? The ASC Writer only prints `absolute`
-        self.timestamps_format: Optional[str] = None
+        self.timestamps_format: str | None = None
         self.internal_events_logged = False
 
     def _extract_header(self) -> None:
@@ -117,43 +116,52 @@ class ASCReader(TextIOMessageReader):
 
     @staticmethod
     def _datetime_to_timestamp(datetime_string: str) -> float:
-        # ugly locale independent solution
         month_map = {
-            "Jan": 1,
-            "Feb": 2,
-            "Mar": 3,
-            "Apr": 4,
-            "May": 5,
-            "Jun": 6,
-            "Jul": 7,
-            "Aug": 8,
-            "Sep": 9,
-            "Oct": 10,
-            "Nov": 11,
-            "Dec": 12,
-            "Mär": 3,
-            "Mai": 5,
-            "Okt": 10,
-            "Dez": 12,
+            "jan": 1,
+            "feb": 2,
+            "mar": 3,
+            "apr": 4,
+            "may": 5,
+            "jun": 6,
+            "jul": 7,
+            "aug": 8,
+            "sep": 9,
+            "oct": 10,
+            "nov": 11,
+            "dec": 12,
+            "mär": 3,
+            "mai": 5,
+            "okt": 10,
+            "dez": 12,
         }
-        for name, number in month_map.items():
-            datetime_string = datetime_string.replace(name, str(number).zfill(2))
 
         datetime_formats = (
             "%m %d %I:%M:%S.%f %p %Y",
             "%m %d %I:%M:%S %p %Y",
             "%m %d %H:%M:%S.%f %Y",
             "%m %d %H:%M:%S %Y",
+            "%m %d %H:%M:%S.%f %p %Y",
+            "%m %d %H:%M:%S %p %Y",
         )
+
+        datetime_string_parts = datetime_string.split(" ", 1)
+        month = datetime_string_parts[0].strip().lower()
+
+        try:
+            datetime_string_parts[0] = f"{month_map[month]:02d}"
+        except KeyError:
+            raise ValueError(f"Unsupported month abbreviation: {month}") from None
+        datetime_string = " ".join(datetime_string_parts)
+
         for format_str in datetime_formats:
             try:
                 return datetime.strptime(datetime_string, format_str).timestamp()
             except ValueError:
                 continue
 
-        raise ValueError(f"Incompatible datetime string {datetime_string}")
+        raise ValueError(f"Unsupported datetime format: '{datetime_string}'")
 
-    def _extract_can_id(self, str_can_id: str, msg_kwargs: Dict[str, Any]) -> None:
+    def _extract_can_id(self, str_can_id: str, msg_kwargs: dict[str, Any]) -> None:
         if str_can_id[-1:].lower() == "x":
             msg_kwargs["is_extended_id"] = True
             can_id = int(str_can_id[0:-1], self._converted_base)
@@ -169,7 +177,7 @@ class ASCReader(TextIOMessageReader):
         return BASE_DEC if base == "dec" else BASE_HEX
 
     def _process_data_string(
-        self, data_str: str, data_length: int, msg_kwargs: Dict[str, Any]
+        self, data_str: str, data_length: int, msg_kwargs: dict[str, Any]
     ) -> None:
         frame = bytearray()
         data = data_str.split()
@@ -178,7 +186,7 @@ class ASCReader(TextIOMessageReader):
         msg_kwargs["data"] = frame
 
     def _process_classic_can_frame(
-        self, line: str, msg_kwargs: Dict[str, Any]
+        self, line: str, msg_kwargs: dict[str, Any]
     ) -> Message:
         # CAN error frame
         if line.strip()[0:10].lower() == "errorframe":
@@ -213,7 +221,7 @@ class ASCReader(TextIOMessageReader):
 
         return Message(**msg_kwargs)
 
-    def _process_fd_can_frame(self, line: str, msg_kwargs: Dict[str, Any]) -> Message:
+    def _process_fd_can_frame(self, line: str, msg_kwargs: dict[str, Any]) -> Message:
         channel, direction, rest_of_message = line.split(None, 2)
         # See ASCWriter
         msg_kwargs["channel"] = int(channel) - 1
@@ -285,7 +293,7 @@ class ASCReader(TextIOMessageReader):
                 # J1939 message or some other unsupported event
                 continue
 
-            msg_kwargs: Dict[str, Union[float, bool, int]] = {}
+            msg_kwargs: dict[str, float | bool | int] = {}
             try:
                 _timestamp, channel, rest_of_message = line.split(None, 2)
                 timestamp = float(_timestamp) + self.start_time
@@ -321,8 +329,6 @@ class ASCWriter(TextIOMessageWriter):
     It the first message does not have a timestamp, it is set to zero.
     """
 
-    file: TextIO
-
     FORMAT_MESSAGE = "{channel}  {id:<15} {dir:<4} {dtype} {data}"
     FORMAT_MESSAGE_FD = " ".join(
         [
@@ -350,7 +356,7 @@ class ASCWriter(TextIOMessageWriter):
 
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         channel: int = 1,
         **kwargs: Any,
     ) -> None:
@@ -396,7 +402,7 @@ class ASCWriter(TextIOMessageWriter):
             self.file.write("End TriggerBlock\n")
         super().stop()
 
-    def log_event(self, message: str, timestamp: Optional[float] = None) -> None:
+    def log_event(self, message: str, timestamp: float | None = None) -> None:
         """Add a message to the log file.
 
         :param message: an arbitrary message
@@ -439,10 +445,10 @@ class ASCWriter(TextIOMessageWriter):
             return
         if msg.is_remote_frame:
             dtype = f"r {msg.dlc:x}"  # New after v8.5
-            data: List[str] = []
+            data: str = ""
         else:
             dtype = f"d {msg.dlc:x}"
-            data = [f"{byte:02X}" for byte in msg.data]
+            data = msg.data.hex(" ").upper()
         arb_id = f"{msg.arbitration_id:X}"
         if msg.is_extended_id:
             arb_id += "x"
@@ -462,7 +468,7 @@ class ASCWriter(TextIOMessageWriter):
                 esi=1 if msg.error_state_indicator else 0,
                 dlc=len2dlc(msg.dlc),
                 data_length=len(msg.data),
-                data=" ".join(data),
+                data=data,
                 message_duration=0,
                 message_length=0,
                 flags=flags,
@@ -478,6 +484,6 @@ class ASCWriter(TextIOMessageWriter):
                 id=arb_id,
                 dir="Rx" if msg.is_rx else "Tx",
                 dtype=dtype,
-                data=" ".join(data),
+                data=data,
             )
         self.log_event(serialized, msg.timestamp)

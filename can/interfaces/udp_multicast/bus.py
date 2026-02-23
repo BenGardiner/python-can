@@ -1,34 +1,37 @@
 import errno
 import logging
+import platform
 import select
 import socket
 import struct
+import time
 import warnings
-from typing import List, Optional, Tuple, Union
+from typing import Any
 
 import can
-from can import BusABC, CanProtocol
+from can import BusABC, CanProtocol, Message
 from can.typechecking import AutoDetectedConfig
 
-from .utils import check_msgpack_installed, pack_message, unpack_message
+from .utils import is_msgpack_installed, pack_message, unpack_message
 
-try:
+is_linux = platform.system() == "Linux"
+if is_linux:
     from fcntl import ioctl
-except ModuleNotFoundError:  # Missing on Windows
-    pass
-
 
 log = logging.getLogger(__name__)
 
 
 # see socket.getaddrinfo()
-IPv4_ADDRESS_INFO = Tuple[str, int]  # address, port
-IPv6_ADDRESS_INFO = Tuple[str, int, int, int]  # address, port, flowinfo, scope_id
-IP_ADDRESS_INFO = Union[IPv4_ADDRESS_INFO, IPv6_ADDRESS_INFO]
+IPv4_ADDRESS_INFO = tuple[str, int]  # address, port
+IPv6_ADDRESS_INFO = tuple[str, int, int, int]  # address, port, flowinfo, scope_id
+IP_ADDRESS_INFO = IPv4_ADDRESS_INFO | IPv6_ADDRESS_INFO
 
 # Additional constants for the interaction with Unix kernels
 SO_TIMESTAMPNS = 35
 SIOCGSTAMP = 0x8906
+
+# Additional constants for the interaction with the Winsock API
+WSAEINVAL = 10022
 
 
 class UdpMulticastBus(BusABC):
@@ -95,9 +98,9 @@ class UdpMulticastBus(BusABC):
         hop_limit: int = 1,
         receive_own_messages: bool = False,
         fd: bool = True,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        check_msgpack_installed()
+        is_msgpack_installed()
 
         if receive_own_messages:
             raise can.CanInterfaceNotImplementedError(
@@ -123,7 +126,7 @@ class UdpMulticastBus(BusABC):
         )
         return self._can_protocol is CanProtocol.CAN_FD
 
-    def _recv_internal(self, timeout: Optional[float]):
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
         result = self._multicast.recv(timeout)
         if not result:
             return None, False
@@ -143,7 +146,7 @@ class UdpMulticastBus(BusABC):
 
         return can_message, False
 
-    def send(self, msg: can.Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: can.Message, timeout: float | None = None) -> None:
         if self._can_protocol is not CanProtocol.CAN_FD and msg.is_fd:
             raise can.CanOperationError(
                 "cannot send FD message over bus with CAN FD disabled"
@@ -165,7 +168,7 @@ class UdpMulticastBus(BusABC):
         self._multicast.shutdown()
 
     @staticmethod
-    def _detect_available_configs() -> List[AutoDetectedConfig]:
+    def _detect_available_configs() -> list[AutoDetectedConfig]:
         if hasattr(socket, "CMSG_SPACE"):
             return [
                 {
@@ -201,7 +204,7 @@ class GeneralPurposeUdpMulticastBus:
 
         # Look up multicast group address in name server and find out IP version of the first suitable target
         # and then get the address family of it (socket.AF_INET or socket.AF_INET6)
-        connection_candidates = socket.getaddrinfo(  # type: ignore
+        connection_candidates = socket.getaddrinfo(
             group, self.port, type=socket.SOCK_DGRAM
         )
         sock = None
@@ -237,7 +240,7 @@ class GeneralPurposeUdpMulticastBus:
 
         # used by send()
         self._send_destination = (self.group, self.port)
-        self._last_send_timeout: Optional[float] = None
+        self._last_send_timeout: float | None = None
 
     def _create_socket(self, address_family: socket.AddressFamily) -> socket.socket:
         """Creates a new socket. This might fail and raise an exception!
@@ -268,11 +271,19 @@ class GeneralPurposeUdpMulticastBus:
             # Allow multiple programs to access that address + port
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
+            # Option not supported on Windows.
+            if hasattr(socket, "SO_REUSEPORT"):
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
             # set how to receive timestamps
             try:
                 sock.setsockopt(socket.SOL_SOCKET, SO_TIMESTAMPNS, 1)
             except OSError as error:
-                if error.errno == errno.ENOPROTOOPT:  # It is unavailable on macOS
+                if (
+                    error.errno == errno.ENOPROTOOPT
+                    or error.errno == errno.EINVAL
+                    or error.errno == WSAEINVAL
+                ):  # It is unavailable on macOS (ENOPROTOOPT) or windows(EINVAL/WSAEINVAL)
                     self.timestamp_nanosecond = False
                 else:
                     raise error
@@ -306,7 +317,7 @@ class GeneralPurposeUdpMulticastBus:
                 "could not create or configure socket"
             ) from error
 
-    def send(self, data: bytes, timeout: Optional[float] = None) -> None:
+    def send(self, data: bytes, timeout: float | None = None) -> None:
         """Send data to all group members. This call blocks.
 
         :param timeout: the timeout in seconds after which an Exception is raised is sending has failed
@@ -329,8 +340,8 @@ class GeneralPurposeUdpMulticastBus:
             raise can.CanOperationError("failed to send via socket") from error
 
     def recv(
-        self, timeout: Optional[float] = None
-    ) -> Optional[Tuple[bytes, IP_ADDRESS_INFO, float]]:
+        self, timeout: float | None = None
+    ) -> tuple[bytes, IP_ADDRESS_INFO, float] | None:
         """
         Receive up to **max_buffer** bytes.
 
@@ -353,18 +364,18 @@ class GeneralPurposeUdpMulticastBus:
             ) from exc
 
         if ready_receive_sockets:  # not empty
-            # fetch data & source address
-            (
-                raw_message_data,
-                ancillary_data,
-                _,  # flags
-                sender_address,
-            ) = self._socket.recvmsg(
-                self.max_buffer, self.received_ancillary_buffer_size
-            )
-
             # fetch timestamp; this is configured in _create_socket()
             if self.timestamp_nanosecond:
+                # fetch data, timestamp & source address
+                (
+                    raw_message_data,
+                    ancillary_data,
+                    _,  # flags
+                    sender_address,
+                ) = self._socket.recvmsg(
+                    self.max_buffer, self.received_ancillary_buffer_size
+                )
+
                 # Very similar to timestamp handling in can/interfaces/socketcan/socketcan.py -> capture_message()
                 if len(ancillary_data) != 1:
                     raise can.CanOperationError(
@@ -385,14 +396,29 @@ class GeneralPurposeUdpMulticastBus:
                     )
                 timestamp = seconds + nanoseconds * 1.0e-9
             else:
-                result_buffer = ioctl(
-                    self._socket.fileno(),
-                    SIOCGSTAMP,
-                    bytes(self.received_timestamp_struct_size),
+                # fetch data & source address
+                (raw_message_data, sender_address) = self._socket.recvfrom(
+                    self.max_buffer
                 )
-                seconds, microseconds = struct.unpack(
-                    self.received_timestamp_struct, result_buffer
-                )
+
+                if is_linux:
+                    # This ioctl isn't supported on Darwin & Windows.
+                    result_buffer = ioctl(
+                        self._socket.fileno(),
+                        SIOCGSTAMP,
+                        bytes(self.received_timestamp_struct_size),
+                    )
+                    seconds, microseconds = struct.unpack(
+                        self.received_timestamp_struct, result_buffer
+                    )
+                else:
+                    # fallback to time.time_ns
+                    now = time.time()
+
+                    # Extract seconds and microseconds
+                    seconds = int(now)
+                    microseconds = int((now - seconds) * 1000000)
+
                 if microseconds >= 1e6:
                     raise can.CanOperationError(
                         f"Timestamp microseconds field was out of range: {microseconds} not less than 1e6"

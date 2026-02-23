@@ -1,15 +1,16 @@
-"""
-"""
+""" """
 
 import logging
-from typing import List
 
 log = logging.getLogger("can.usb2can")
 
 try:
+    import pythoncom
     import win32com.client
 except ImportError:
-    log.warning("win32com.client module required for usb2can")
+    log.warning(
+        "win32com.client module required for usb2can. Install the 'pywin32' package."
+    )
     raise
 
 
@@ -42,7 +43,7 @@ def WMIDateStringToDate(dtmDate) -> str:
     return strDateTime
 
 
-def find_serial_devices(serial_matcher: str = "") -> List[str]:
+def find_serial_devices(serial_matcher: str = "") -> list[str]:
     """
     Finds a list of USB devices where the serial number (partially) matches the given string.
 
@@ -50,6 +51,7 @@ def find_serial_devices(serial_matcher: str = "") -> List[str]:
         only device IDs starting with this string are returned
     """
     serial_numbers = []
+    pythoncom.CoInitialize()
     wmi = win32com.client.GetObject("winmgmts:")
     for usb_controller in wmi.InstancesOf("Win32_USBControllerDevice"):
         usb_device = wmi.Get(usb_controller.Dependent)

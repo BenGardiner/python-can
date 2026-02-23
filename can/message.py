@@ -8,7 +8,7 @@ This module contains the implementation of :class:`can.Message`.
 
 from copy import deepcopy
 from math import isinf, isnan
-from typing import Optional
+from typing import Any
 
 from . import typechecking
 
@@ -32,19 +32,19 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
     """
 
     __slots__ = (
-        "timestamp",
-        "arbitration_id",
-        "is_extended_id",
-        "is_remote_frame",
-        "is_error_frame",
-        "channel",
-        "dlc",
-        "data",
-        "is_fd",
-        "is_rx",
-        "bitrate_switch",
-        "error_state_indicator",
         "__weakref__",  # support weak references to messages
+        "arbitration_id",
+        "bitrate_switch",
+        "channel",
+        "data",
+        "dlc",
+        "error_state_indicator",
+        "is_error_frame",
+        "is_extended_id",
+        "is_fd",
+        "is_remote_frame",
+        "is_rx",
+        "timestamp",
     )
 
     def __init__(  # pylint: disable=too-many-locals, too-many-arguments
@@ -54,9 +54,9 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
         is_extended_id: bool = True,
         is_remote_frame: bool = False,
         is_error_frame: bool = False,
-        channel: Optional[typechecking.Channel] = None,
-        dlc: Optional[int] = None,
-        data: Optional[typechecking.CanData] = None,
+        channel: typechecking.Channel | None = None,
+        dlc: int | None = None,
+        data: typechecking.CanData | None = None,
         is_fd: bool = False,
         is_rx: bool = True,
         bitrate_switch: bool = False,
@@ -130,12 +130,11 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
         field_strings.append(flag_string)
 
         field_strings.append(f"DL: {self.dlc:2d}")
-        data_strings = []
+        data_strings = ""
         if self.data is not None:
-            for index in range(0, min(self.dlc, len(self.data))):
-                data_strings.append(f"{self.data[index]:02x}")
+            data_strings = self.data[: min(self.dlc, len(self.data))].hex(" ")
         if data_strings:  # if not empty
-            field_strings.append(" ".join(data_strings).ljust(24, " "))
+            field_strings.append(data_strings.ljust(24, " "))
         else:
             field_strings.append(" " * 24)
 
@@ -186,7 +185,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
 
         return f"can.Message({', '.join(args)})"
 
-    def __format__(self, format_spec: Optional[str]) -> str:
+    def __format__(self, format_spec: str | None) -> str:
         if not format_spec:
             return self.__str__()
         else:
@@ -211,7 +210,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
             error_state_indicator=self.error_state_indicator,
         )
 
-    def __deepcopy__(self, memo: dict) -> "Message":
+    def __deepcopy__(self, memo: dict[int, Any] | None) -> "Message":
         return Message(
             timestamp=self.timestamp,
             arbitration_id=self.arbitration_id,
@@ -290,7 +289,7 @@ class Message:  # pylint: disable=too-many-instance-attributes; OK for a datacla
     def equals(
         self,
         other: "Message",
-        timestamp_delta: Optional[float] = 1.0e-6,
+        timestamp_delta: float | None = 1.0e-6,
         check_channel: bool = True,
         check_direction: bool = True,
     ) -> bool:

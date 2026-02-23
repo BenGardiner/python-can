@@ -1,8 +1,9 @@
 import logging
 import time
 from collections import deque
+from collections.abc import Sequence
 from ctypes import c_ubyte
-from typing import Any, Deque, Dict, Optional, Sequence, Tuple, Union
+from typing import Any
 
 import canalystii as driver
 
@@ -20,13 +21,13 @@ class CANalystIIBus(BusABC):
     )
     def __init__(
         self,
-        channel: Union[int, Sequence[int], str] = (0, 1),
+        channel: int | Sequence[int] | str = (0, 1),
         device: int = 0,
-        bitrate: Optional[int] = None,
-        timing: Optional[Union[BitTiming, BitTimingFd]] = None,
-        can_filters: Optional[CanFilters] = None,
-        rx_queue_size: Optional[int] = None,
-        **kwargs: Dict[str, Any],
+        bitrate: int | None = None,
+        timing: BitTiming | BitTimingFd | None = None,
+        can_filters: CanFilters | None = None,
+        rx_queue_size: int | None = None,
+        **kwargs: dict[str, Any],
     ):
         """
 
@@ -68,7 +69,7 @@ class CANalystIIBus(BusABC):
             self.channels = list(channel)
 
         self.channel_info = f"CANalyst-II: device {device}, channels {self.channels}"
-        self.rx_queue: Deque[Tuple[int, driver.Message]] = deque(maxlen=rx_queue_size)
+        self.rx_queue: deque[tuple[int, driver.Message]] = deque(maxlen=rx_queue_size)
         self.device = driver.CanalystDevice(device_index=device)
         self._can_protocol = CanProtocol.CAN_20
 
@@ -93,7 +94,7 @@ class CANalystIIBus(BusABC):
     # system.
     RX_POLL_DELAY = 0.020
 
-    def send(self, msg: Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         """Send a CAN message to the bus
 
         :param msg: message to send
@@ -129,7 +130,7 @@ class CANalystIIBus(BusABC):
         if timeout is not None and not send_result:
             raise CanTimeoutError(f"Send timed out after {timeout} seconds")
 
-    def _recv_from_queue(self) -> Tuple[Message, bool]:
+    def _recv_from_queue(self) -> tuple[Message, bool]:
         """Return a message from the internal receive queue"""
         channel, raw_msg = self.rx_queue.popleft()
 
@@ -165,8 +166,8 @@ class CANalystIIBus(BusABC):
             )
 
     def _recv_internal(
-        self, timeout: Optional[float] = None
-    ) -> Tuple[Optional[Message], bool]:
+        self, timeout: float | None = None
+    ) -> tuple[Message | None, bool]:
         """
 
         :param timeout: float in seconds
@@ -193,7 +194,7 @@ class CANalystIIBus(BusABC):
 
         return (None, False)
 
-    def flush_tx_buffer(self, channel: Optional[int] = None) -> None:
+    def flush_tx_buffer(self, channel: int | None = None) -> None:
         """Flush the TX buffer of the device.
 
         :param channel:

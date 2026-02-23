@@ -10,7 +10,8 @@ TODO: This module could use https://docs.python.org/2/library/csv.html#module-cs
 """
 
 from base64 import b64decode, b64encode
-from typing import Any, Generator, TextIO, Union
+from collections.abc import Generator
+from typing import Any, TextIO
 
 from can.message import Message
 
@@ -27,11 +28,9 @@ class CSVReader(TextIOMessageReader):
     Any line separator is accepted.
     """
 
-    file: TextIO
-
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         **kwargs: Any,
     ) -> None:
         """
@@ -88,11 +87,9 @@ class CSVWriter(TextIOMessageWriter):
     Each line is terminated with a platform specific line separator.
     """
 
-    file: TextIO
-
     def __init__(
         self,
-        file: Union[StringPathLike, TextIO],
+        file: StringPathLike | TextIO,
         append: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -105,8 +102,7 @@ class CSVWriter(TextIOMessageWriter):
                             the file is truncated and starts with a newly
                             written header line
         """
-        mode = "a" if append else "w"
-        super().__init__(file, mode=mode)
+        super().__init__(file, mode="a" if append else "w")
 
         # Write a header row
         if not append:

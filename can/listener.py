@@ -3,17 +3,17 @@ This module contains the implementation of `can.Listener` and some readers.
 """
 
 import asyncio
-import sys
 import warnings
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from queue import Empty, SimpleQueue
-from typing import Any, AsyncIterator, Optional
+from typing import Any
 
 from can.bus import BusABC
 from can.message import Message
 
 
-class Listener(metaclass=ABCMeta):
+class Listener(ABC):
     """The basic listener that can be called directly to handle some
     CAN message::
 
@@ -98,7 +98,7 @@ class BufferedReader(Listener):  # pylint: disable=abstract-method
         else:
             self.buffer.put(msg)
 
-    def get_message(self, timeout: float = 0.5) -> Optional[Message]:
+    def get_message(self, timeout: float = 0.5) -> Message | None:
         """
         Attempts to retrieve the message that has been in the queue for the longest amount
         of time (FIFO). If no message is available, it blocks for given timeout or until a
@@ -135,6 +135,7 @@ class AsyncBufferedReader(
     """
 
     def __init__(self, **kwargs: Any) -> None:
+        self._is_stopped: bool = False
         self.buffer: asyncio.Queue[Message]
 
         if "loop" in kwargs:
@@ -144,12 +145,7 @@ class AsyncBufferedReader(
                 DeprecationWarning,
                 stacklevel=2,
             )
-            if sys.version_info < (3, 10):
-                self.buffer = asyncio.Queue(loop=kwargs["loop"])
-                return
-
         self.buffer = asyncio.Queue()
-        self._is_stopped: bool = False
 
     def on_message_received(self, msg: Message) -> None:
         """Append a message to the buffer.

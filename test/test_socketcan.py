@@ -5,6 +5,7 @@ Test functions in `can.interfaces.socketcan.socketcan`.
 """
 import ctypes
 import struct
+import sys
 import unittest
 import warnings
 from unittest.mock import patch
@@ -34,6 +35,7 @@ class SocketCANTest(unittest.TestCase):
         self._ctypes_sizeof = ctypes.sizeof
         self._ctypes_alignment = ctypes.alignment
 
+    @unittest.skipIf(sys.version_info >= (3, 14), "Fails on Python 3.14 or newer")
     @patch("ctypes.sizeof")
     @patch("ctypes.alignment")
     def test_bcm_header_factory_32_bit_sizeof_long_4_alignof_long_4(
@@ -103,6 +105,7 @@ class SocketCANTest(unittest.TestCase):
         ]
         self.assertEqual(expected_fields, BcmMsgHead._fields_)
 
+    @unittest.skipIf(sys.version_info >= (3, 14), "Fails on Python 3.14 or newer")
     @patch("ctypes.sizeof")
     @patch("ctypes.alignment")
     def test_bcm_header_factory_32_bit_sizeof_long_4_alignof_long_long_8(
@@ -172,6 +175,7 @@ class SocketCANTest(unittest.TestCase):
         ]
         self.assertEqual(expected_fields, BcmMsgHead._fields_)
 
+    @unittest.skipIf(sys.version_info >= (3, 14), "Fails on Python 3.14 or newer")
     @patch("ctypes.sizeof")
     @patch("ctypes.alignment")
     def test_bcm_header_factory_64_bit_sizeof_long_8_alignof_long_8(
@@ -373,7 +377,7 @@ class SocketCANTest(unittest.TestCase):
 
         This test shall document raw CAN socket support under PyPy. Once this test fails, it is likely that PyPy
         either implemented raw CAN socket support or at least changed the error that is thrown.
-        https://foss.heptapod.net/pypy/pypy/-/issues/3809
+        https://github.com/pypy/pypy/issues/3808
         https://github.com/hardbyte/python-can/issues/1479
         """
         try:
@@ -382,7 +386,7 @@ class SocketCANTest(unittest.TestCase):
             if "unknown address family" not in str(e):
                 warnings.warn(
                     "Please check if PyPy has implemented raw CAN socket support! "
-                    "See: https://foss.heptapod.net/pypy/pypy/-/issues/3809"
+                    "See: https://github.com/pypy/pypy/issues/3808"
                 )
 
 

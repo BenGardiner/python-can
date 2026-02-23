@@ -62,19 +62,38 @@ The table below lists interface drivers that can be added by installing addition
 .. note::
    The packages listed below are maintained by other authors. Any issues should be reported in their corresponding repository and **not** in the python-can repository.
 
-+----------------------------+-------------------------------------------------------+
-| Name                       | Description                                           |
-+============================+=======================================================+
-| `python-can-canine`_       | CAN Driver for the CANine CAN interface               |
-+----------------------------+-------------------------------------------------------+
-| `python-can-cvector`_      | Cython based version of the 'VectorBus'               |
-+----------------------------+-------------------------------------------------------+
-| `python-can-remote`_       | CAN over network bridge                               |
-+----------------------------+-------------------------------------------------------+
-| `python-can-sontheim`_     | CAN Driver for Sontheim CAN interfaces (e.g. CANfox)  |
-+----------------------------+-------------------------------------------------------+
++----------------------------+----------------------------------------------------------+
+| Name                       | Description                                              |
++============================+==========================================================+
+| `python-can-canine`_       | CAN Driver for the CANine CAN interface                  |
++----------------------------+----------------------------------------------------------+
+| `python-can-cvector`_      | Cython based version of the 'VectorBus'                  |
++----------------------------+----------------------------------------------------------+
+| `python-can-remote`_       | CAN over network bridge                                  |
++----------------------------+----------------------------------------------------------+
+| `python-can-sontheim`_     | CAN Driver for Sontheim CAN interfaces (e.g. CANfox)     |
++----------------------------+----------------------------------------------------------+
+| `zlgcan`_                  | Python wrapper for zlgcan-driver-rs                      |
++----------------------------+----------------------------------------------------------+
+| `python-can-cando`_        | Python wrapper for Netronics' CANdo and CANdoISO         |
++----------------------------+----------------------------------------------------------+
+| `python-can-candle`_       | A full-featured driver for candleLight                   |
++----------------------------+----------------------------------------------------------+
+| `python-can-coe`_          | A CAN-over-Ethernet interface for Technische Alternative |
++----------------------------+----------------------------------------------------------+
+| `RP1210`_                  | CAN channels in RP1210 Vehicle Diagnostic Adapters       |
++----------------------------+----------------------------------------------------------+
+| `python-can-damiao`_       | Interface for Damiao USB-CAN adapters                    |
++----------------------------+----------------------------------------------------------+
 
 .. _python-can-canine: https://github.com/tinymovr/python-can-canine
 .. _python-can-cvector: https://github.com/zariiii9003/python-can-cvector
 .. _python-can-remote: https://github.com/christiansandberg/python-can-remote
 .. _python-can-sontheim: https://github.com/MattWoodhead/python-can-sontheim
+.. _zlgcan: https://github.com/jesses2025smith/zlgcan-driver
+.. _python-can-cando: https://github.com/belliriccardo/python-can-cando
+.. _python-can-candle: https://github.com/BIRLab/python-can-candle
+.. _python-can-coe: https://c0d3.sh/smarthome/python-can-coe
+.. _RP1210: https://github.com/dfieschko/RP1210
+.. _python-can-damiao: https://github.com/gaoyichuan/python-can-damiao
+

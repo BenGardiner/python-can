@@ -1,6 +1,6 @@
 """
 There are several specific :class:`Exception` classes to allow user
-code to react to specific scenarios related to CAN busses::
+code to react to specific scenarios related to CAN buses::
 
     Exception (Python standard library)
      +-- ...
@@ -15,14 +15,8 @@ For example, validating typical arguments and parameters might result in a
 :class:`ValueError`. This should always be documented for the function at hand.
 """
 
-import sys
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Optional, Type
-
-if sys.version_info >= (3, 9):
-    from collections.abc import Generator
-else:
-    from typing import Generator
 
 
 class CanError(Exception):
@@ -56,7 +50,7 @@ class CanError(Exception):
     def __init__(
         self,
         message: str = "",
-        error_code: Optional[int] = None,
+        error_code: int | None = None,
     ) -> None:
         self.error_code = error_code
         super().__init__(
@@ -113,8 +107,8 @@ class CanTimeoutError(CanError, TimeoutError):
 
 @contextmanager
 def error_check(
-    error_message: Optional[str] = None,
-    exception_type: Type[CanError] = CanOperationError,
+    error_message: str | None = None,
+    exception_type: type[CanError] = CanOperationError,
 ) -> Generator[None, None, None]:
     """Catches any exceptions and turns them into the new type while preserving the stack trace."""
     try:

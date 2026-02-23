@@ -5,26 +5,17 @@ Contains the ABC bus implementation and its documentation.
 import contextlib
 import logging
 import threading
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterator, Sequence
 from enum import Enum, auto
 from time import time
 from types import TracebackType
 from typing import (
-    Any,
-    Callable,
-    Iterator,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Type,
-    Union,
     cast,
 )
 
 from typing_extensions import Self
 
-import can
 import can.typechecking
 from can.broadcastmanager import CyclicSendTaskABC, ThreadBasedCyclicSendTask
 from can.message import Message
@@ -49,7 +40,7 @@ class CanProtocol(Enum):
     CAN_XL = auto()
 
 
-class BusABC(metaclass=ABCMeta):
+class BusABC(ABC):
     """The CAN Bus Abstract Base Class that serves as the basis
     for all concrete interfaces.
 
@@ -73,8 +64,8 @@ class BusABC(metaclass=ABCMeta):
     @abstractmethod
     def __init__(
         self,
-        channel: Any,
-        can_filters: Optional[can.typechecking.CanFilters] = None,
+        channel: can.typechecking.Channel,
+        can_filters: can.typechecking.CanFilters | None = None,
         **kwargs: object,
     ):
         """Construct and open a CAN bus instance of the specified type.
@@ -97,7 +88,7 @@ class BusABC(metaclass=ABCMeta):
         :raises ~can.exceptions.CanInitializationError:
             If the bus cannot be initialized
         """
-        self._periodic_tasks: List[_SelfRemovingCyclicTask] = []
+        self._periodic_tasks: list[_SelfRemovingCyclicTask] = []
         self.set_filters(can_filters)
         # Flip the class default value when the constructor finishes.  That
         # usually means the derived class constructor was also successful,
@@ -107,7 +98,7 @@ class BusABC(metaclass=ABCMeta):
     def __str__(self) -> str:
         return self.channel_info
 
-    def recv(self, timeout: Optional[float] = None) -> Optional[Message]:
+    def recv(self, timeout: float | None = None) -> Message | None:
         """Block waiting for a message from the Bus.
 
         :param timeout:
@@ -145,9 +136,7 @@ class BusABC(metaclass=ABCMeta):
 
                 return None
 
-    def _recv_internal(
-        self, timeout: Optional[float]
-    ) -> Tuple[Optional[Message], bool]:
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
         """
         Read a message from the bus and tell whether it was filtered.
         This methods may be called by :meth:`~can.BusABC.recv`
@@ -190,7 +179,7 @@ class BusABC(metaclass=ABCMeta):
         raise NotImplementedError("Trying to read from a write only bus?")
 
     @abstractmethod
-    def send(self, msg: Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         """Transmit a message to the CAN bus.
 
         Override this method to enable the transmit path.
@@ -211,11 +200,12 @@ class BusABC(metaclass=ABCMeta):
 
     def send_periodic(
         self,
-        msgs: Union[Message, Sequence[Message]],
+        msgs: Message | Sequence[Message],
         period: float,
-        duration: Optional[float] = None,
+        duration: float | None = None,
         store_task: bool = True,
-        modifier_callback: Optional[Callable[[Message], None]] = None,
+        autostart: bool = True,
+        modifier_callback: Callable[[Message], None] | None = None,
     ) -> can.broadcastmanager.CyclicSendTaskABC:
         """Start sending messages at a given period on this bus.
 
@@ -237,6 +227,10 @@ class BusABC(metaclass=ABCMeta):
         :param store_task:
             If True (the default) the task will be attached to this Bus instance.
             Disable to instead manage tasks manually.
+        :param autostart:
+            If True (the default) the sending task will immediately start after creation.
+            Otherwise, the task has to be started by calling the
+            tasks :meth:`~can.RestartableCyclicTaskABC.start` method on it.
         :param modifier_callback:
             Function which should be used to modify each message's data before
             sending. The callback modifies the :attr:`~can.Message.data` of the
@@ -271,8 +265,10 @@ class BusABC(metaclass=ABCMeta):
 
         # Create a backend specific task; will be patched to a _SelfRemovingCyclicTask later
         task = cast(
-            _SelfRemovingCyclicTask,
-            self._send_periodic_internal(msgs, period, duration, modifier_callback),
+            "_SelfRemovingCyclicTask",
+            self._send_periodic_internal(
+                msgs, period, duration, autostart, modifier_callback
+            ),
         )
         # we wrap the task's stop method to also remove it from the Bus's list of tasks
         periodic_tasks = self._periodic_tasks
@@ -296,10 +292,11 @@ class BusABC(metaclass=ABCMeta):
 
     def _send_periodic_internal(
         self,
-        msgs: Union[Sequence[Message], Message],
+        msgs: Sequence[Message] | Message,
         period: float,
-        duration: Optional[float] = None,
-        modifier_callback: Optional[Callable[[Message], None]] = None,
+        duration: float | None = None,
+        autostart: bool = True,
+        modifier_callback: Callable[[Message], None] | None = None,
     ) -> can.broadcastmanager.CyclicSendTaskABC:
         """Default implementation of periodic message sending using threading.
 
@@ -312,6 +309,10 @@ class BusABC(metaclass=ABCMeta):
         :param duration:
             The duration between sending each message at the given rate. If
             no duration is provided, the task will continue indefinitely.
+        :param autostart:
+            If True (the default) the sending task will immediately start after creation.
+            Otherwise, the task has to be started by calling the
+            tasks :meth:`~can.RestartableCyclicTaskABC.start` method on it.
         :return:
             A started task instance. Note the task can be stopped (and
             depending on the backend modified) by calling the
@@ -328,6 +329,7 @@ class BusABC(metaclass=ABCMeta):
             messages=msgs,
             period=period,
             duration=duration,
+            autostart=autostart,
             modifier_callback=modifier_callback,
         )
         return task
@@ -371,7 +373,7 @@ class BusABC(metaclass=ABCMeta):
                 yield msg
 
     @property
-    def filters(self) -> Optional[can.typechecking.CanFilters]:
+    def filters(self) -> can.typechecking.CanFilters | None:
         """
         Modify the filters of this bus. See :meth:`~can.BusABC.set_filters`
         for details.
@@ -379,12 +381,10 @@ class BusABC(metaclass=ABCMeta):
         return self._filters
 
     @filters.setter
-    def filters(self, filters: Optional[can.typechecking.CanFilters]) -> None:
+    def filters(self, filters: can.typechecking.CanFilters | None) -> None:
         self.set_filters(filters)
 
-    def set_filters(
-        self, filters: Optional[can.typechecking.CanFilters] = None
-    ) -> None:
+    def set_filters(self, filters: can.typechecking.CanFilters | None = None) -> None:
         """Apply filtering to all messages received by this Bus.
 
         All messages that match at least one filter are returned.
@@ -410,7 +410,7 @@ class BusABC(metaclass=ABCMeta):
         with contextlib.suppress(NotImplementedError):
             self._apply_filters(self._filters)
 
-    def _apply_filters(self, filters: Optional[can.typechecking.CanFilters]) -> None:
+    def _apply_filters(self, filters: can.typechecking.CanFilters | None) -> None:
         """
         Hook for applying the filters to the underlying kernel or
         hardware if supported/implemented by the interface.
@@ -439,7 +439,6 @@ class BusABC(metaclass=ABCMeta):
         for _filter in self._filters:
             # check if this filter even applies to the message
             if "extended" in _filter:
-                _filter = cast(can.typechecking.CanFilterExtended, _filter)
                 if _filter["extended"] != msg.is_extended_id:
                     continue
 
@@ -478,9 +477,9 @@ class BusABC(metaclass=ABCMeta):
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_value: Optional[BaseException],
-        traceback: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
     ) -> None:
         self.shutdown()
 
@@ -516,7 +515,7 @@ class BusABC(metaclass=ABCMeta):
         return self._can_protocol
 
     @staticmethod
-    def _detect_available_configs() -> List[can.typechecking.AutoDetectedConfig]:
+    def _detect_available_configs() -> Sequence[can.typechecking.AutoDetectedConfig]:
         """Detect all configurations/channels that this interface could
         currently connect with.
 

@@ -17,14 +17,16 @@ import logging
 import struct
 import time
 import zlib
-from typing import Any, BinaryIO, Generator, List, Optional, Tuple, Union, cast
+from collections.abc import Generator, Iterator
+from decimal import Decimal
+from typing import Any, BinaryIO, cast
 
 from ..message import Message
 from ..typechecking import StringPathLike
 from ..util import channel2int, dlc2len, len2dlc
-from .generic import BinaryIOMessageReader, FileIOMessageWriter
+from .generic import BinaryIOMessageReader, BinaryIOMessageWriter
 
-TSystemTime = Tuple[int, int, int, int, int, int, int, int]
+TSystemTime = tuple[int, int, int, int, int, int, int, int]
 
 
 class BLFParseError(Exception):
@@ -98,12 +100,15 @@ DIR = 0x1
 TIME_TEN_MICS = 0x00000001
 TIME_ONE_NANS = 0x00000002
 
+TIME_TEN_MICS_FACTOR = Decimal("1e-5")
+TIME_ONE_NANS_FACTOR = Decimal("1e-9")
 
-def timestamp_to_systemtime(timestamp: float) -> TSystemTime:
+
+def timestamp_to_systemtime(timestamp: float | None) -> TSystemTime:
     if timestamp is None or timestamp < 631152000:
         # Probably not a Unix timestamp
         return 0, 0, 0, 0, 0, 0, 0, 0
-    t = datetime.datetime.fromtimestamp(round(timestamp, 3))
+    t = datetime.datetime.fromtimestamp(round(timestamp, 3), tz=datetime.timezone.utc)
     return (
         t.year,
         t.month,
@@ -126,6 +131,7 @@ def systemtime_to_timestamp(systemtime: TSystemTime) -> float:
             systemtime[5],
             systemtime[6],
             systemtime[7] * 1000,
+            tzinfo=datetime.timezone.utc,
         )
         return t.timestamp()
     except ValueError:
@@ -140,11 +146,9 @@ class BLFReader(BinaryIOMessageReader):
     silently ignored.
     """
 
-    file: BinaryIO
-
     def __init__(
         self,
-        file: Union[StringPathLike, BinaryIO],
+        file: StringPathLike | BinaryIO,
         **kwargs: Any,
     ) -> None:
         """
@@ -160,8 +164,12 @@ class BLFReader(BinaryIOMessageReader):
         self.file_size = header[10]
         self.uncompressed_size = header[11]
         self.object_count = header[12]
-        self.start_timestamp = systemtime_to_timestamp(cast(TSystemTime, header[14:22]))
-        self.stop_timestamp = systemtime_to_timestamp(cast(TSystemTime, header[22:30]))
+        self.start_timestamp = systemtime_to_timestamp(
+            cast("TSystemTime", header[14:22])
+        )
+        self.stop_timestamp = systemtime_to_timestamp(
+            cast("TSystemTime", header[22:30])
+        )
         # Read rest of header
         self.file.read(header[1] - FILE_HEADER_STRUCT.size)
         self._tail = b""
@@ -196,7 +204,7 @@ class BLFReader(BinaryIOMessageReader):
                 yield from self._parse_container(data)
         self.stop()
 
-    def _parse_container(self, data):
+    def _parse_container(self, data: bytes) -> Iterator[Message]:
         if self._tail:
             data = b"".join((self._tail, data))
         try:
@@ -207,7 +215,7 @@ class BLFReader(BinaryIOMessageReader):
         # Save the remaining data that could not be processed
         self._tail = data[self._pos :]
 
-    def _parse_data(self, data):
+    def _parse_data(self, data: bytes) -> Iterator[Message]:
         """Optimized inner loop by making local copies of global variables
         and class members and hardcoding some values."""
         unpack_obj_header_base = OBJ_HEADER_BASE_STRUCT.unpack_from
@@ -239,7 +247,7 @@ class BLFReader(BinaryIOMessageReader):
                 raise BLFParseError("Could not find next object") from None
             header = unpack_obj_header_base(data, pos)
             # print(header)
-            signature, _, header_version, obj_size, obj_type = header
+            signature, header_size, header_version, obj_size, obj_type = header
             if signature != b"LOBJ":
                 raise BLFParseError()
 
@@ -263,8 +271,8 @@ class BLFReader(BinaryIOMessageReader):
                 continue
 
             # Calculate absolute timestamp in seconds
-            factor = 1e-5 if flags == 1 else 1e-9
-            timestamp = timestamp * factor + start_timestamp
+            factor = TIME_TEN_MICS_FACTOR if flags == 1 else TIME_ONE_NANS_FACTOR
+            timestamp = float(Decimal(timestamp) * factor) + start_timestamp
 
             if obj_type in (CAN_MESSAGE, CAN_MESSAGE2):
                 channel, flags, dlc, can_id, can_data = unpack_can_msg(data, pos)
@@ -334,10 +342,20 @@ class BLFReader(BinaryIOMessageReader):
                     _,
                     _,
                     direction,
-                    _,
+                    ext_data_offset,
                     _,
                 ) = unpack_can_fd_64_msg(data, pos)
-                pos += can_fd_64_msg_size
+
+                # :issue:`1905`: `valid_bytes` can be higher than the actually available data.
+                # Add zero-byte padding to mimic behavior of CANoe and binlog.dll.
+                data_field_length = min(
+                    valid_bytes,
+                    (ext_data_offset or obj_size) - header_size - can_fd_64_msg_size,
+                )
+                msg_data_offset = pos + can_fd_64_msg_size
+                msg_data = data[msg_data_offset : msg_data_offset + data_field_length]
+                msg_data = msg_data.ljust(valid_bytes, b"\x00")
+
                 yield Message(
                     timestamp=timestamp,
                     arbitration_id=can_id & 0x1FFFFFFF,
@@ -348,19 +366,17 @@ class BLFReader(BinaryIOMessageReader):
                     bitrate_switch=bool(fd_flags & 0x2000),
                     error_state_indicator=bool(fd_flags & 0x4000),
                     dlc=dlc2len(dlc),
-                    data=data[pos : pos + valid_bytes],
+                    data=msg_data,
                     channel=channel - 1,
                 )
 
             pos = next_pos
 
 
-class BLFWriter(FileIOMessageWriter):
+class BLFWriter(BinaryIOMessageWriter):
     """
     Logs CAN data to a Binary Logging File compatible with Vector's tools.
     """
-
-    file: BinaryIO
 
     #: Max log container size of uncompressed data
     max_container_size = 128 * 1024
@@ -370,7 +386,7 @@ class BLFWriter(FileIOMessageWriter):
 
     def __init__(
         self,
-        file: Union[StringPathLike, BinaryIO],
+        file: StringPathLike | BinaryIO,
         append: bool = False,
         channel: int = 1,
         compression_level: int = -1,
@@ -392,18 +408,16 @@ class BLFWriter(FileIOMessageWriter):
             Z_DEFAULT_COMPRESSION represents a default compromise between
             speed and compression (currently equivalent to level 6).
         """
-        mode = "rb+" if append else "wb"
         try:
-            super().__init__(file, mode=mode)
+            super().__init__(file, mode="rb+" if append else "wb")
         except FileNotFoundError:
             # Trying to append to a non-existing file, create a new one
             append = False
-            mode = "wb"
-            super().__init__(file, mode=mode)
+            super().__init__(file, mode="wb")
         assert self.file is not None
         self.channel = channel
         self.compression_level = compression_level
-        self._buffer: List[bytes] = []
+        self._buffer: list[bytes] = []
         self._buffer_size = 0
         # If max container size is located in kwargs, then update the instance
         if kwargs.get("max_container_size", False):
@@ -416,11 +430,11 @@ class BLFWriter(FileIOMessageWriter):
                 raise BLFParseError("Unexpected file format")
             self.uncompressed_size = header[11]
             self.object_count = header[12]
-            self.start_timestamp: Optional[float] = systemtime_to_timestamp(
-                cast(TSystemTime, header[14:22])
+            self.start_timestamp: float | None = systemtime_to_timestamp(
+                cast("TSystemTime", header[14:22])
             )
-            self.stop_timestamp: Optional[float] = systemtime_to_timestamp(
-                cast(TSystemTime, header[22:30])
+            self.stop_timestamp: float | None = systemtime_to_timestamp(
+                cast("TSystemTime", header[22:30])
             )
             # Jump to the end of the file
             self.file.seek(0, 2)
@@ -432,7 +446,7 @@ class BLFWriter(FileIOMessageWriter):
             # Write a default header which will be updated when stopped
             self._write_header(FILE_HEADER_SIZE)
 
-    def _write_header(self, filesize):
+    def _write_header(self, filesize: int) -> None:
         header = [b"LOGG", FILE_HEADER_SIZE, self.application_id, 0, 0, 0, 2, 6, 8, 1]
         # The meaning of "count of objects read" is unknown
         header.extend([filesize, self.uncompressed_size, self.object_count, 0])
@@ -442,7 +456,7 @@ class BLFWriter(FileIOMessageWriter):
         # Pad to header size
         self.file.write(b"\x00" * (FILE_HEADER_SIZE - FILE_HEADER_STRUCT.size))
 
-    def on_message_received(self, msg):
+    def on_message_received(self, msg: Message) -> None:
         channel = channel2int(msg.channel)
         if channel is None:
             channel = self.channel
@@ -494,7 +508,7 @@ class BLFWriter(FileIOMessageWriter):
             data = CAN_MSG_STRUCT.pack(channel, flags, msg.dlc, arb_id, can_data)
             self._add_object(CAN_MESSAGE, data, msg.timestamp)
 
-    def log_event(self, text, timestamp=None):
+    def log_event(self, text: str, timestamp: float | None = None) -> None:
         """Add an arbitrary message to the log file as a global marker.
 
         :param str text:
@@ -505,21 +519,26 @@ class BLFWriter(FileIOMessageWriter):
         """
         try:
             # Only works on Windows
-            text = text.encode("mbcs")
+            encoded = text.encode("mbcs")
         except LookupError:
-            text = text.encode("ascii")
+            encoded = text.encode("ascii")
         comment = b"Added by python-can"
         marker = b"python-can"
         data = GLOBAL_MARKER_STRUCT.pack(
-            0, 0xFFFFFF, 0xFF3300, 0, len(text), len(marker), len(comment)
+            0, 0xFFFFFF, 0xFF3300, 0, len(encoded), len(marker), len(comment)
         )
-        self._add_object(GLOBAL_MARKER, data + text + marker + comment, timestamp)
+        self._add_object(GLOBAL_MARKER, data + encoded + marker + comment, timestamp)
 
-    def _add_object(self, obj_type, data, timestamp=None):
+    def _add_object(
+        self, obj_type: int, data: bytes, timestamp: float | None = None
+    ) -> None:
         if timestamp is None:
             timestamp = self.stop_timestamp or time.time()
         if self.start_timestamp is None:
-            self.start_timestamp = timestamp
+            # Save start timestamp using the same precision as the BLF format
+            # Truncating to milliseconds to avoid rounding errors when calculating
+            # the timestamp difference
+            self.start_timestamp = int(timestamp * 1000) / 1000
         self.stop_timestamp = timestamp
         timestamp = int((timestamp - self.start_timestamp) * 1e9)
         header_size = OBJ_HEADER_BASE_STRUCT.size + OBJ_HEADER_V1_STRUCT.size
@@ -541,7 +560,7 @@ class BLFWriter(FileIOMessageWriter):
         if self._buffer_size >= self.max_container_size:
             self._flush()
 
-    def _flush(self):
+    def _flush(self) -> None:
         """Compresses and writes data in the buffer to file."""
         if self.file.closed:
             return
@@ -555,7 +574,7 @@ class BLFWriter(FileIOMessageWriter):
         self._buffer = [tail]
         self._buffer_size = len(tail)
         if not self.compression_level:
-            data = uncompressed_data
+            data: "bytes | memoryview[int]" = uncompressed_data  # noqa: UP037
             method = NO_COMPRESSION
         else:
             data = zlib.compress(uncompressed_data, self.compression_level)
@@ -578,7 +597,7 @@ class BLFWriter(FileIOMessageWriter):
         """Return an estimate of the current file size in bytes."""
         return self.file.tell() + self._buffer_size
 
-    def stop(self):
+    def stop(self) -> None:
         """Stops logging and closes the file."""
         self._flush()
         if self.file.seekable():

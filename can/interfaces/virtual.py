@@ -12,23 +12,18 @@ import time
 from copy import deepcopy
 from random import randint
 from threading import RLock
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import Any, Final
 
 from can import CanOperationError
 from can.bus import BusABC, CanProtocol
 from can.message import Message
-from can.typechecking import AutoDetectedConfig
+from can.typechecking import AutoDetectedConfig, Channel
 
 logger = logging.getLogger(__name__)
 
-
 # Channels are lists of queues, one for each connection
-if TYPE_CHECKING:
-    # https://mypy.readthedocs.io/en/stable/runtime_troubles.html#using-classes-that-are-generic-in-stubs-but-not-at-runtime
-    channels: Dict[Optional[Any], List[queue.Queue[Message]]] = {}
-else:
-    channels = {}
-channels_lock = RLock()
+channels: Final[dict[Channel, list[queue.Queue[Message]]]] = {}
+channels_lock: Final = RLock()
 
 
 class VirtualBus(BusABC):
@@ -58,7 +53,7 @@ class VirtualBus(BusABC):
 
     def __init__(
         self,
-        channel: Any = None,
+        channel: Channel = "channel-0",
         receive_own_messages: bool = False,
         rx_queue_size: int = 0,
         preserve_timestamps: bool = False,
@@ -71,9 +66,9 @@ class VirtualBus(BusABC):
         bus by virtual instances constructed with the same channel identifier.
 
         :param channel: The channel identifier. This parameter can be an
-            arbitrary value. The bus instance will be able to see messages
-            from other virtual bus instances that were created with the same
-            value.
+            arbitrary hashable value. The bus instance will be able to see
+            messages from other virtual bus instances that were created with
+            the same value.
         :param receive_own_messages: If set to True, sent messages will be
             reflected back on the input queue.
         :param rx_queue_size: The size of the reception queue. The reception
@@ -123,9 +118,7 @@ class VirtualBus(BusABC):
         if not self._open:
             raise CanOperationError("Cannot operate on a closed bus")
 
-    def _recv_internal(
-        self, timeout: Optional[float]
-    ) -> Tuple[Optional[Message], bool]:
+    def _recv_internal(self, timeout: float | None) -> tuple[Message | None, bool]:
         self._check_if_open()
         try:
             msg = self.queue.get(block=True, timeout=timeout)
@@ -134,7 +127,7 @@ class VirtualBus(BusABC):
         else:
             return msg, False
 
-    def send(self, msg: Message, timeout: Optional[float] = None) -> None:
+    def send(self, msg: Message, timeout: float | None = None) -> None:
         self._check_if_open()
 
         timestamp = msg.timestamp if self.preserve_timestamps else time.time()
@@ -168,7 +161,7 @@ class VirtualBus(BusABC):
                     del channels[self.channel_id]
 
     @staticmethod
-    def _detect_available_configs() -> List[AutoDetectedConfig]:
+    def _detect_available_configs() -> list[AutoDetectedConfig]:
         """
         Returns all currently used channels as well as
         one other currently unused channel.
@@ -183,7 +176,7 @@ class VirtualBus(BusABC):
             available_channels = list(channels.keys())
 
         # find a currently unused channel
-        def get_extra():
+        def get_extra() -> str:
             return f"channel-{randint(0, 9999)}"
 
         extra = get_extra()

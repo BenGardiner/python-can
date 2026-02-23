@@ -2,7 +2,7 @@
 Defines common functions.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, cast
 
 from can import CanInterfaceNotImplementedError, Message
 from can.typechecking import ReadableBytesLike
@@ -13,10 +13,22 @@ except ImportError:
     msgpack = None
 
 
-def check_msgpack_installed() -> None:
-    """Raises a :class:`can.CanInterfaceNotImplementedError` if `msgpack` is not installed."""
+def is_msgpack_installed(raise_exception: bool = True) -> bool:
+    """Check whether the ``msgpack`` module is installed.
+
+    :param raise_exception:
+        If True, raise a :class:`can.CanInterfaceNotImplementedError` when ``msgpack`` is not installed.
+        If False, return False instead.
+    :return:
+        True if ``msgpack`` is installed, False otherwise.
+    :raises can.CanInterfaceNotImplementedError:
+        If ``msgpack`` is not installed and ``raise_exception`` is True.
+    """
     if msgpack is None:
-        raise CanInterfaceNotImplementedError("msgpack not installed")
+        if raise_exception:
+            raise CanInterfaceNotImplementedError("msgpack not installed")
+        return False
+    return True
 
 
 def pack_message(message: Message) -> bytes:
@@ -25,7 +37,7 @@ def pack_message(message: Message) -> bytes:
 
     :param message: the message to be packed
     """
-    check_msgpack_installed()
+    is_msgpack_installed()
     as_dict = {
         "timestamp": message.timestamp,
         "arbitration_id": message.arbitration_id,
@@ -39,12 +51,12 @@ def pack_message(message: Message) -> bytes:
         "bitrate_switch": message.bitrate_switch,
         "error_state_indicator": message.error_state_indicator,
     }
-    return msgpack.packb(as_dict, use_bin_type=True)
+    return cast("bytes", msgpack.packb(as_dict, use_bin_type=True))
 
 
 def unpack_message(
     data: ReadableBytesLike,
-    replace: Optional[Dict[str, Any]] = None,
+    replace: dict[str, Any] | None = None,
     check: bool = False,
 ) -> Message:
     """Unpack a can.Message from a msgpack byte blob.
@@ -58,7 +70,7 @@ def unpack_message(
     :raise ValueError: if `check` is true and the message metadata is invalid in some way
     :raise Exception: if there was another problem while unpacking
     """
-    check_msgpack_installed()
+    is_msgpack_installed()
     as_dict = msgpack.unpackb(data, raw=False)
     if replace is not None:
         as_dict.update(replace)

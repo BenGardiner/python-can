@@ -6,27 +6,21 @@ import gzip
 import os
 import pathlib
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime
 from types import TracebackType
 from typing import (
     Any,
-    Callable,
     ClassVar,
-    Dict,
     Final,
     Literal,
-    Optional,
-    Set,
-    Tuple,
-    Type,
-    cast,
 )
 
 from typing_extensions import Self
 
 from .._entry_points import read_entry_points
 from ..message import Message
-from ..typechecking import AcceptedIOType, FileLike, StringPathLike
+from ..typechecking import StringPathLike
 from .asc import ASCWriter
 from .blf import BLFWriter
 from .canutils import CanutilsLogWriter
@@ -35,6 +29,8 @@ from .generic import (
     BinaryIOMessageWriter,
     FileIOMessageWriter,
     MessageWriter,
+    SizedMessageWriter,
+    TextIOMessageWriter,
 )
 from .mf4 import MF4Writer
 from .printer import Printer
@@ -43,7 +39,7 @@ from .trc import TRCWriter
 
 #: A map of file suffixes to their corresponding
 #: :class:`can.io.generic.MessageWriter` class
-MESSAGE_WRITERS: Final[Dict[str, Type[MessageWriter]]] = {
+MESSAGE_WRITERS: Final[dict[str, type[MessageWriter]]] = {
     ".asc": ASCWriter,
     ".blf": BLFWriter,
     ".csv": CSVWriter,
@@ -66,7 +62,7 @@ def _update_writer_plugins() -> None:
             MESSAGE_WRITERS[entry_point.key] = writer_class
 
 
-def _get_logger_for_suffix(suffix: str) -> Type[MessageWriter]:
+def _get_logger_for_suffix(suffix: str) -> type[MessageWriter]:
     try:
         return MESSAGE_WRITERS[suffix]
     except KeyError:
@@ -75,9 +71,7 @@ def _get_logger_for_suffix(suffix: str) -> Type[MessageWriter]:
         ) from None
 
 
-def _compress(
-    filename: StringPathLike, **kwargs: Any
-) -> Tuple[Type[MessageWriter], FileLike]:
+def _compress(filename: StringPathLike, **kwargs: Any) -> FileIOMessageWriter[Any]:
     """
     Return the suffix and io object of the decompressed file.
     File will automatically recompress upon close.
@@ -97,15 +91,22 @@ def _compress(
     append = kwargs.get("append", False)
 
     if issubclass(logger_type, BinaryIOMessageWriter):
-        mode = "ab" if append else "wb"
-    else:
-        mode = "at" if append else "wt"
+        return logger_type(
+            file=gzip.open(filename=filename, mode="ab" if append else "wb"), **kwargs
+        )
 
-    return logger_type, gzip.open(filename, mode)
+    elif issubclass(logger_type, TextIOMessageWriter):
+        return logger_type(
+            file=gzip.open(filename=filename, mode="at" if append else "wt"), **kwargs
+        )
+
+    raise ValueError(
+        f"The file type {real_suffix} is currently incompatible with gzip."
+    )
 
 
 def Logger(  # noqa: N802
-    filename: Optional[StringPathLike], **kwargs: Any
+    filename: StringPathLike | None, **kwargs: Any
 ) -> MessageWriter:
     """Find and return the appropriate :class:`~can.io.generic.MessageWriter` instance
     for a given file suffix.
@@ -147,12 +148,11 @@ def Logger(  # noqa: N802
     _update_writer_plugins()
 
     suffix = pathlib.PurePath(filename).suffix.lower()
-    file_or_filename: AcceptedIOType = filename
     if suffix == ".gz":
-        logger_type, file_or_filename = _compress(filename, **kwargs)
-    else:
-        logger_type = _get_logger_for_suffix(suffix)
-    return logger_type(file=file_or_filename, **kwargs)
+        return _compress(filename, **kwargs)
+
+    logger_type = _get_logger_for_suffix(suffix)
+    return logger_type(file=filename, **kwargs)
 
 
 class BaseRotatingLogger(MessageWriter, ABC):
@@ -171,29 +171,27 @@ class BaseRotatingLogger(MessageWriter, ABC):
     Subclasses must set the `_writer` attribute upon initialization.
     """
 
-    _supported_formats: ClassVar[Set[str]] = set()
+    _supported_formats: ClassVar[set[str]] = set()
 
     #: If this attribute is set to a callable, the :meth:`~BaseRotatingLogger.rotation_filename`
     #: method delegates to this callable. The parameters passed to the callable are
     #: those passed to :meth:`~BaseRotatingLogger.rotation_filename`.
-    namer: Optional[Callable[[StringPathLike], StringPathLike]] = None
+    namer: Callable[[StringPathLike], StringPathLike] | None = None
 
     #: If this attribute is set to a callable, the :meth:`~BaseRotatingLogger.rotate` method
     #: delegates to this callable. The parameters passed to the callable are those
     #: passed to :meth:`~BaseRotatingLogger.rotate`.
-    rotator: Optional[Callable[[StringPathLike, StringPathLike], None]] = None
+    rotator: Callable[[StringPathLike, StringPathLike], None] | None = None
 
     #: An integer counter to track the number of rollovers.
     rollover_count: int = 0
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**{**kwargs, "file": None})
-
         self.writer_kwargs = kwargs
 
     @property
     @abstractmethod
-    def writer(self) -> FileIOMessageWriter:
+    def writer(self) -> MessageWriter:
         """This attribute holds an instance of a writer class which manages the actual file IO."""
         raise NotImplementedError
 
@@ -247,7 +245,7 @@ class BaseRotatingLogger(MessageWriter, ABC):
 
         self.writer.on_message_received(msg)
 
-    def _get_new_writer(self, filename: StringPathLike) -> FileIOMessageWriter:
+    def _get_new_writer(self, filename: StringPathLike) -> MessageWriter:
         """Instantiate a new writer.
 
         .. note::
@@ -265,10 +263,7 @@ class BaseRotatingLogger(MessageWriter, ABC):
             if suffix not in self._supported_formats:
                 continue
             logger = Logger(filename=filename, **self.writer_kwargs)
-            if isinstance(logger, FileIOMessageWriter):
-                return logger
-            elif isinstance(logger, Printer) and logger.file is not None:
-                return cast(FileIOMessageWriter, logger)
+            return logger
 
         raise ValueError(
             f'The log format of "{pathlib.Path(filename).name}" '
@@ -290,11 +285,12 @@ class BaseRotatingLogger(MessageWriter, ABC):
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType],
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> Literal[False]:
-        return self.writer.__exit__(exc_type, exc_val, exc_tb)
+        self.stop()
+        return False
 
     @abstractmethod
     def should_rollover(self, msg: Message) -> bool:
@@ -347,7 +343,7 @@ class SizedRotatingLogger(BaseRotatingLogger):
     :meth:`~can.Listener.stop` is called.
     """
 
-    _supported_formats: ClassVar[Set[str]] = {".asc", ".blf", ".csv", ".log", ".txt"}
+    _supported_formats: ClassVar[set[str]] = {".asc", ".blf", ".csv", ".log", ".txt"}
 
     def __init__(
         self,
@@ -370,18 +366,25 @@ class SizedRotatingLogger(BaseRotatingLogger):
 
         self._writer = self._get_new_writer(self.base_filename)
 
+    def _get_new_writer(self, filename: StringPathLike) -> SizedMessageWriter:
+        writer = super()._get_new_writer(filename)
+        if isinstance(writer, SizedMessageWriter):
+            return writer
+        raise TypeError
+
     @property
-    def writer(self) -> FileIOMessageWriter:
+    def writer(self) -> SizedMessageWriter:
         return self._writer
 
     def should_rollover(self, msg: Message) -> bool:
         if self.max_bytes <= 0:
             return False
 
-        if self.writer.file_size() >= self.max_bytes:
-            return True
+        file_size = self.writer.file_size()
+        if file_size is None:
+            return False
 
-        return False
+        return file_size >= self.max_bytes
 
     def do_rollover(self) -> None:
         if self.writer:

@@ -5,11 +5,12 @@ This module contains common `ctypes` utils.
 import ctypes
 import logging
 import sys
-from typing import Any, Callable, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any
 
 log = logging.getLogger("can.ctypesutil")
 
-__all__ = ["CLibrary", "HANDLE", "PHANDLE", "HRESULT"]
+__all__ = ["HANDLE", "HRESULT", "PHANDLE", "CLibrary"]
 
 if sys.platform == "win32":
     _LibBase = ctypes.WinDLL
@@ -20,7 +21,7 @@ else:
 
 
 class CLibrary(_LibBase):
-    def __init__(self, library_or_path: Union[str, ctypes.CDLL]) -> None:
+    def __init__(self, library_or_path: str | ctypes.CDLL) -> None:
         self.func_name: Any
 
         if isinstance(library_or_path, str):
@@ -32,8 +33,8 @@ class CLibrary(_LibBase):
         self,
         func_name: str,
         restype: Any = None,
-        argtypes: Tuple[Any, ...] = (),
-        errcheck: Optional[Callable[..., Any]] = None,
+        argtypes: tuple[Any, ...] = (),
+        errcheck: Callable[..., Any] | None = None,
     ) -> Any:
         """
         Map and return a symbol (function) from a C library. A reference to the

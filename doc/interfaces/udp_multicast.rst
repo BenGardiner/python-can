@@ -22,6 +22,15 @@ sufficiently reliable for this interface to function properly.
 Please refer to the `Bus class documentation`_ below for configuration options and useful resources
 for specifying multicast IP addresses.
 
+Installation
+-------------------
+
+The Multicast IP Interface depends on the **msgpack** python library,
+which is automatically installed with the `multicast` extra keyword::
+
+       $ pip install python-can[multicast]
+
+
 Supported Platforms
 -------------------
 
@@ -52,6 +61,9 @@ from ``bus_1`` to ``bus_2``:
 
             # give the notifier enough time to get triggered by the second bus
             time.sleep(2.0)
+
+            # clean-up
+            notifier.stop()
 
 
 Bus Class Documentation

@@ -7,32 +7,27 @@ in the recorded order and time intervals.
 import gzip
 import pathlib
 import time
+from collections.abc import Generator, Iterable
 from typing import (
     Any,
-    Dict,
     Final,
-    Generator,
-    Iterable,
-    Tuple,
-    Type,
-    Union,
 )
 
 from .._entry_points import read_entry_points
 from ..message import Message
-from ..typechecking import AcceptedIOType, FileLike, StringPathLike
+from ..typechecking import StringPathLike
 from .asc import ASCReader
 from .blf import BLFReader
 from .canutils import CanutilsLogReader
 from .csv import CSVReader
-from .generic import BinaryIOMessageReader, MessageReader
+from .generic import BinaryIOMessageReader, MessageReader, TextIOMessageReader
 from .mf4 import MF4Reader
 from .sqlite import SqliteReader
 from .trc import TRCReader
 
 #: A map of file suffixes to their corresponding
 #: :class:`can.io.generic.MessageReader` class
-MESSAGE_READERS: Final[Dict[str, Type[MessageReader]]] = {
+MESSAGE_READERS: Final[dict[str, type[MessageReader]]] = {
     ".asc": ASCReader,
     ".blf": BLFReader,
     ".csv": CSVReader,
@@ -54,7 +49,7 @@ def _update_reader_plugins() -> None:
             MESSAGE_READERS[entry_point.key] = reader_class
 
 
-def _get_logger_for_suffix(suffix: str) -> Type[MessageReader]:
+def _get_logger_for_suffix(suffix: str) -> type[MessageReader]:
     """Find MessageReader class for given suffix."""
     try:
         return MESSAGE_READERS[suffix]
@@ -62,24 +57,25 @@ def _get_logger_for_suffix(suffix: str) -> Type[MessageReader]:
         raise ValueError(f'No read support for unknown log format "{suffix}"') from None
 
 
-def _decompress(
-    filename: StringPathLike,
-) -> Tuple[Type[MessageReader], Union[str, FileLike]]:
+def _decompress(filename: StringPathLike, **kwargs: Any) -> MessageReader:
     """
     Return the suffix and io object of the decompressed file.
     """
     suffixes = pathlib.Path(filename).suffixes
     if len(suffixes) != 2:
         raise ValueError(
-            f"No write support for unknown log format \"{''.join(suffixes)}\""
-        ) from None
+            f"No read support for unknown log format \"{''.join(suffixes)}\""
+        )
 
     real_suffix = suffixes[-2].lower()
     reader_type = _get_logger_for_suffix(real_suffix)
 
-    mode = "rb" if issubclass(reader_type, BinaryIOMessageReader) else "rt"
+    if issubclass(reader_type, TextIOMessageReader):
+        return reader_type(gzip.open(filename, mode="rt"), **kwargs)
+    elif issubclass(reader_type, BinaryIOMessageReader):
+        return reader_type(gzip.open(filename, mode="rb"), **kwargs)
 
-    return reader_type, gzip.open(filename, mode)
+    raise ValueError(f"No read support for unknown log format \"{''.join(suffixes)}\"")
 
 
 def LogReader(filename: StringPathLike, **kwargs: Any) -> MessageReader:  # noqa: N802
@@ -122,12 +118,11 @@ def LogReader(filename: StringPathLike, **kwargs: Any) -> MessageReader:  # noqa
     _update_reader_plugins()
 
     suffix = pathlib.PurePath(filename).suffix.lower()
-    file_or_filename: AcceptedIOType = filename
     if suffix == ".gz":
-        reader_type, file_or_filename = _decompress(filename)
-    else:
-        reader_type = _get_logger_for_suffix(suffix)
-    return reader_type(file=file_or_filename, **kwargs)
+        return _decompress(filename)
+
+    reader_type = _get_logger_for_suffix(suffix)
+    return reader_type(file=filename, **kwargs)
 
 
 class MessageSync:

@@ -7,10 +7,17 @@ The main entry point to these classes should be through
 
 import abc
 import logging
+import platform
 import sys
 import threading
 import time
-from typing import TYPE_CHECKING, Callable, Final, Optional, Sequence, Tuple, Union
+import warnings
+from collections.abc import Callable, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Final,
+    cast,
+)
 
 from can import typechecking
 from can.message import Message
@@ -19,22 +26,61 @@ if TYPE_CHECKING:
     from can.bus import BusABC
 
 
-# try to import win32event for event-based cyclic send task (needs the pywin32 package)
-USE_WINDOWS_EVENTS = False
-try:
-    import pywintypes
-    import win32event
-
-    # Python 3.11 provides a more precise sleep implementation on Windows, so this is not necessary.
-    # Put version check here, so mypy does not complain about `win32event` not being defined.
-    if sys.version_info < (3, 11):
-        USE_WINDOWS_EVENTS = True
-except ImportError:
-    pass
-
 log = logging.getLogger("can.bcm")
-
 NANOSECONDS_IN_SECOND: Final[int] = 1_000_000_000
+
+
+class _Pywin32Event:
+    handle: int
+
+
+class _Pywin32:
+    def __init__(self) -> None:
+        import pywintypes  # noqa: PLC0415 # pylint: disable=import-outside-toplevel,import-error
+        import win32event  # noqa: PLC0415 # pylint: disable=import-outside-toplevel,import-error
+
+        self.pywintypes = pywintypes
+        self.win32event = win32event
+
+    def create_timer(self) -> _Pywin32Event:
+        try:
+            event = self.win32event.CreateWaitableTimerEx(
+                None,
+                None,
+                self.win32event.CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                self.win32event.TIMER_ALL_ACCESS,
+            )
+        except (
+            AttributeError,
+            OSError,
+            self.pywintypes.error,  # pylint: disable=no-member
+        ):
+            event = self.win32event.CreateWaitableTimer(None, False, None)
+
+        return cast("_Pywin32Event", event)
+
+    def set_timer(self, event: _Pywin32Event, period_ms: int) -> None:
+        self.win32event.SetWaitableTimer(event.handle, 0, period_ms, None, None, False)
+
+    def stop_timer(self, event: _Pywin32Event) -> None:
+        self.win32event.SetWaitableTimer(event.handle, 0, 0, None, None, False)
+
+    def wait_0(self, event: _Pywin32Event) -> None:
+        self.win32event.WaitForSingleObject(event.handle, 0)
+
+    def wait_inf(self, event: _Pywin32Event) -> None:
+        self.win32event.WaitForSingleObject(
+            event.handle,
+            self.win32event.INFINITE,
+        )
+
+
+PYWIN32: _Pywin32 | None = None
+if sys.platform == "win32" and sys.version_info < (3, 11):
+    try:
+        PYWIN32 = _Pywin32()
+    except ImportError:
+        pass
 
 
 class CyclicTask(abc.ABC):
@@ -56,9 +102,7 @@ class CyclicSendTaskABC(CyclicTask, abc.ABC):
     Message send task with defined period
     """
 
-    def __init__(
-        self, messages: Union[Sequence[Message], Message], period: float
-    ) -> None:
+    def __init__(self, messages: Sequence[Message] | Message, period: float) -> None:
         """
         :param messages:
             The messages to be sent periodically.
@@ -71,13 +115,13 @@ class CyclicSendTaskABC(CyclicTask, abc.ABC):
         # Take the Arbitration ID of the first element
         self.arbitration_id = messages[0].arbitration_id
         self.period = period
-        self.period_ns = int(round(period * 1e9))
+        self.period_ns = round(period * 1e9)
         self.messages = messages
 
     @staticmethod
     def _check_and_convert_messages(
-        messages: Union[Sequence[Message], Message]
-    ) -> Tuple[Message, ...]:
+        messages: Sequence[Message] | Message,
+    ) -> tuple[Message, ...]:
         """Helper function to convert a Message or Sequence of messages into a
         tuple, and raises an error when the given value is invalid.
 
@@ -115,9 +159,9 @@ class CyclicSendTaskABC(CyclicTask, abc.ABC):
 class LimitedDurationCyclicSendTaskABC(CyclicSendTaskABC, abc.ABC):
     def __init__(
         self,
-        messages: Union[Sequence[Message], Message],
+        messages: Sequence[Message] | Message,
         period: float,
-        duration: Optional[float],
+        duration: float | None,
     ) -> None:
         """Message send task with a defined duration and period.
 
@@ -132,6 +176,7 @@ class LimitedDurationCyclicSendTaskABC(CyclicSendTaskABC, abc.ABC):
         """
         super().__init__(messages, period)
         self.duration = duration
+        self.end_time: float | None = None
 
 
 class RestartableCyclicTaskABC(CyclicSendTaskABC, abc.ABC):
@@ -143,7 +188,7 @@ class RestartableCyclicTaskABC(CyclicSendTaskABC, abc.ABC):
 
 
 class ModifiableCyclicTaskABC(CyclicSendTaskABC, abc.ABC):
-    def _check_modified_messages(self, messages: Tuple[Message, ...]) -> None:
+    def _check_modified_messages(self, messages: tuple[Message, ...]) -> None:
         """Helper function to perform error checking when modifying the data in
         the cyclic task.
 
@@ -165,7 +210,7 @@ class ModifiableCyclicTaskABC(CyclicSendTaskABC, abc.ABC):
                 "from when the task was created"
             )
 
-    def modify_data(self, messages: Union[Sequence[Message], Message]) -> None:
+    def modify_data(self, messages: Sequence[Message] | Message) -> None:
         """Update the contents of the periodically sent messages, without
         altering the timing.
 
@@ -192,7 +237,7 @@ class MultiRateCyclicSendTaskABC(CyclicSendTaskABC, abc.ABC):
     def __init__(
         self,
         channel: typechecking.Channel,
-        messages: Union[Sequence[Message], Message],
+        messages: Sequence[Message] | Message,
         count: int,  # pylint: disable=unused-argument
         initial_period: float,  # pylint: disable=unused-argument
         subsequent_period: float,
@@ -222,11 +267,12 @@ class ThreadBasedCyclicSendTask(
         self,
         bus: "BusABC",
         lock: threading.Lock,
-        messages: Union[Sequence[Message], Message],
+        messages: Sequence[Message] | Message,
         period: float,
-        duration: Optional[float] = None,
-        on_error: Optional[Callable[[Exception], bool]] = None,
-        modifier_callback: Optional[Callable[[Message], None]] = None,
+        duration: float | None = None,
+        on_error: Callable[[Exception], bool] | None = None,
+        autostart: bool = True,
+        modifier_callback: Callable[[Message], None] | None = None,
     ) -> None:
         """Transmits `messages` with a `period` seconds for `duration` seconds on a `bus`.
 
@@ -247,32 +293,38 @@ class ThreadBasedCyclicSendTask(
         self.bus = bus
         self.send_lock = lock
         self.stopped = True
-        self.thread: Optional[threading.Thread] = None
-        self.end_time: Optional[float] = (
-            time.perf_counter() + duration if duration else None
-        )
+        self.thread: threading.Thread | None = None
         self.on_error = on_error
         self.modifier_callback = modifier_callback
 
-        if USE_WINDOWS_EVENTS:
-            self.period_ms = int(round(period * 1000, 0))
-            try:
-                self.event = win32event.CreateWaitableTimerEx(
-                    None,
-                    None,
-                    win32event.CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                    win32event.TIMER_ALL_ACCESS,
-                )
-            except (AttributeError, OSError, pywintypes.error):
-                self.event = win32event.CreateWaitableTimer(None, False, None)
+        self.period_ms = int(round(period * 1000, 0))
 
-        self.start()
+        self.event: _Pywin32Event | None = None
+        if PYWIN32:
+            if self.period_ms == 0:
+                # A period of 0 would mean that the timer is signaled only once
+                raise ValueError("The period cannot be smaller than 0.001 (1 ms)")
+            self.event = PYWIN32.create_timer()
+        elif (
+            sys.platform == "win32"
+            and sys.version_info < (3, 11)
+            and platform.python_implementation() == "CPython"
+        ):
+            warnings.warn(
+                f"{self.__class__.__name__} may achieve better timing accuracy "
+                f"if the 'pywin32' package is installed.",
+                RuntimeWarning,
+                stacklevel=1,
+            )
+
+        if autostart:
+            self.start()
 
     def stop(self) -> None:
         self.stopped = True
-        if USE_WINDOWS_EVENTS:
+        if self.event and PYWIN32:
             # Reset and signal any pending wait by setting the timer to 0
-            win32event.SetWaitableTimer(self.event.handle, 0, 0, None, None, False)
+            PYWIN32.stop_timer(self.event)
 
     def start(self) -> None:
         self.stopped = False
@@ -281,10 +333,12 @@ class ThreadBasedCyclicSendTask(
             self.thread = threading.Thread(target=self._run, name=name)
             self.thread.daemon = True
 
-            if USE_WINDOWS_EVENTS:
-                win32event.SetWaitableTimer(
-                    self.event.handle, 0, self.period_ms, None, None, False
-                )
+            self.end_time: float | None = (
+                time.perf_counter() + self.duration if self.duration else None
+            )
+
+            if self.event and PYWIN32:
+                PYWIN32.set_timer(self.event, self.period_ms)
 
             self.thread.start()
 
@@ -292,43 +346,41 @@ class ThreadBasedCyclicSendTask(
         msg_index = 0
         msg_due_time_ns = time.perf_counter_ns()
 
-        if USE_WINDOWS_EVENTS:
+        if self.event and PYWIN32:
             # Make sure the timer is non-signaled before entering the loop
-            win32event.WaitForSingleObject(self.event.handle, 0)
+            PYWIN32.wait_0(self.event)
 
         while not self.stopped:
             if self.end_time is not None and time.perf_counter() >= self.end_time:
+                self.stop()
                 break
 
-            # Prevent calling bus.send from multiple threads
-            with self.send_lock:
-                try:
-                    if self.modifier_callback is not None:
-                        self.modifier_callback(self.messages[msg_index])
+            try:
+                if self.modifier_callback is not None:
+                    self.modifier_callback(self.messages[msg_index])
+                with self.send_lock:
+                    # Prevent calling bus.send from multiple threads
                     self.bus.send(self.messages[msg_index])
-                except Exception as exc:  # pylint: disable=broad-except
-                    log.exception(exc)
+            except Exception as exc:  # pylint: disable=broad-except
+                log.exception(exc)
 
-                    # stop if `on_error` callback was not given
-                    if self.on_error is None:
-                        self.stop()
-                        raise exc
+                # stop if `on_error` callback was not given
+                if self.on_error is None:
+                    self.stop()
+                    raise exc
 
-                    # stop if `on_error` returns False
-                    if not self.on_error(exc):
-                        self.stop()
-                        break
+                # stop if `on_error` returns False
+                if not self.on_error(exc):
+                    self.stop()
+                    break
 
-            if not USE_WINDOWS_EVENTS:
+            if not self.event:
                 msg_due_time_ns += self.period_ns
 
             msg_index = (msg_index + 1) % len(self.messages)
 
-            if USE_WINDOWS_EVENTS:
-                win32event.WaitForSingleObject(
-                    self.event.handle,
-                    win32event.INFINITE,
-                )
+            if self.event and PYWIN32:
+                PYWIN32.wait_inf(self.event)
             else:
                 # Compensate for the time it takes to send the message
                 delay_ns = msg_due_time_ns - time.perf_counter_ns()
